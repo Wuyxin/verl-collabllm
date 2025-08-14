@@ -301,6 +301,7 @@ class SGLangRollout(BaseRollout):
             self._function_call_parser,
         ) = self._initialize_tools(config, processing_class)
         self.interaction_map: dict[str, BaseInteraction] = self._initialize_interactions(config)
+
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
         logger.info(
@@ -318,7 +319,6 @@ class SGLangRollout(BaseRollout):
         self._init_sampling_params(**kwargs)
 
         self.processing_class = processing_class
-
         try:
             # This is when processing_class is a tokenizer
             self.pad_token_id = self.processing_class.pad_token_id
@@ -329,6 +329,7 @@ class SGLangRollout(BaseRollout):
             except AttributeError as e:
                 raise ValueError(f"Cannot get pad_token_id from processing_class {self.processing_class}") from e
 
+        
     def _init_distributed_env(self, device_mesh_cpu, **kwargs):
         self._device_mesh_cpu = device_mesh_cpu
         os.environ.setdefault("SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK", "true")
@@ -841,8 +842,9 @@ class SGLangRollout(BaseRollout):
 
         # Update with any additional kwargs
         request_sampling_params.update(kwargs)
-
+        
         while current_turns < self.config.multi_turn.max_assistant_turns:
+
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
@@ -896,6 +898,8 @@ class SGLangRollout(BaseRollout):
                 content = output["text"]
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
+                # Temporary patch for collabllm, this allows it jumps to INTERACTING mode!!! [COLLABLLM]
+                finish_reason_type = None 
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
                     _req.add_assistant_message(self.processing_class, content)
                     break
@@ -966,11 +970,17 @@ class SGLangRollout(BaseRollout):
                     )
 
                 interaction = self.interaction_map[interaction_name]
+                
                 should_terminate_sequence, content, reward, metrics = await interaction.generate_response(
                     _req.request_id, messages, **_req.interaction_kwargs
                 )
                 user_turn_rewards.append(reward)
-                if should_terminate_sequence:
+                # Add turn check [COLLABLLM]
+                if (
+                    should_terminate_sequence
+                    or user_turns >= self.config.multi_turn.max_user_turns 
+                    or current_turns >= self.config.multi_turn.max_assistant_turns
+                ):
                     finish_reason_type = FinishReasonTypeEnum.STOP
                     _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                     break
@@ -999,6 +1009,7 @@ class SGLangRollout(BaseRollout):
         tool_reward_scores = dict(tool_reward_scores)
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
         _req.finalize(self.processing_class, all_rewards, finish_reason_type)
+
         if self.config.calculate_log_probs:
             # 把input_ids输入sglang内生成一遍，并设置max_new_tokens=0，以生成log_probs
             debug_sampling_params = {**self.sampling_params}
@@ -1087,6 +1098,8 @@ class SGLangRollout(BaseRollout):
                 prompts,
             )
             loop = asyncio.get_event_loop()
+
+            
             output_req_list = loop.run_until_complete(
                 asyncio.gather(
                     *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
