@@ -844,7 +844,6 @@ class SGLangRollout(BaseRollout):
         request_sampling_params.update(kwargs)
         
         while current_turns < self.config.multi_turn.max_assistant_turns:
-
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
@@ -896,10 +895,13 @@ class SGLangRollout(BaseRollout):
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
                 content = output["text"]
-                finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
+                
+                if self.config.multi_turn.collabllm_rollouts:
+                    finish_reason_type = None
+                else:
+                    finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
+                    
                 current_turns += 1
-                # Temporary patch for collabllm, this allows it jumps to INTERACTING mode!!! [COLLABLLM]
-                finish_reason_type = None 
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
                     _req.add_assistant_message(self.processing_class, content)
                     break
@@ -954,6 +956,9 @@ class SGLangRollout(BaseRollout):
                         ):
                             _req.state = AsyncRolloutRequestStateEnum.INTERACTING
                         else:
+                            # Add ending condition
+                            finish_reason_type = FinishReasonTypeEnum.STOP
+                            _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
             elif _req.state == AsyncRolloutRequestStateEnum.INTERACTING:
                 user_turns += 1
@@ -975,11 +980,11 @@ class SGLangRollout(BaseRollout):
                     _req.request_id, messages, **_req.interaction_kwargs
                 )
                 user_turn_rewards.append(reward)
-                # Add turn check [COLLABLLM]
+                # Add turn check
                 if (
                     should_terminate_sequence
-                    or user_turns >= self.config.multi_turn.max_user_turns 
-                    or current_turns >= self.config.multi_turn.max_assistant_turns
+                    or user_turns > self.config.multi_turn.max_user_turns 
+                    or current_turns > self.config.multi_turn.max_assistant_turns
                 ):
                     finish_reason_type = FinishReasonTypeEnum.STOP
                     _req.state = AsyncRolloutRequestStateEnum.COMPLETED
@@ -1099,12 +1104,59 @@ class SGLangRollout(BaseRollout):
             )
             loop = asyncio.get_event_loop()
 
-            
-            output_req_list = loop.run_until_complete(
-                asyncio.gather(
-                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+            if self.config.multi_turn.collabllm_rollouts:
+                max_assistant_turns = self.config.multi_turn.max_assistant_turns
+
+                # for collabllm, firstly generate model reponses
+                self.config.multi_turn.max_assistant_turns = 1
+                output_req_list = loop.run_until_complete(
+                    asyncio.gather(
+                        *[
+                            self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) 
+                            for req in req_list
+                        ],
+                        return_exceptions=False
+                    )
                 )
-            )
+
+                # then, collect interaction rollouts
+                self.config.multi_turn.max_assistant_turns = max_assistant_turns
+                for req in output_req_list:
+                    req.state = AsyncRolloutRequestStateEnum.INTERACTING
+
+                interaction_requests = [
+                    deepcopy(req) 
+                    for req in output_req_list 
+                    for _ in range(self.config.multi_turn.num_repeat_rollouts)
+                ]
+                interaction_req_list = loop.run_until_complete(
+                    asyncio.gather(
+                        *[
+                            self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
+                            for req in interaction_requests
+                        ],
+                        return_exceptions=False
+                    )
+                )
+                # merge interaction rollouts back to original responses
+                num_repeats = self.config.multi_turn.num_repeat_rollouts
+                for i, req in enumerate(output_req_list):
+                    start_idx = i * num_repeats
+                    end_idx = start_idx + num_repeats
+                    interaction_batch = interaction_req_list[start_idx:end_idx]
+                    
+                    # Extract messages from interaction rollouts
+                    req.messages = [
+                        interaction.messages for interaction in interaction_batch
+                    ]
+                    req.state = AsyncRolloutRequestStateEnum.COMPLETED
+
+            else:
+                output_req_list = loop.run_until_complete(
+                    asyncio.gather(
+                        *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
+                    )
+                )
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
             sorted_output_req_list = None
