@@ -147,20 +147,14 @@ EXAMPLE_CFG = {
 # entra_info should be a dict where the key "reward_cfg" is a dict with the example structure above
 # records individual metric breakdowns for debugging purposes
 def compute_reward(data_source, solution_str, ground_truth, extra_info=None):
-    print("[REWARD CUSTOM CONFIG ]", extra_info["custom_reward_config"])
     cfg = {**(extra_info["custom_reward_config"] or {})}
 
     pred_belief, pred_resp = parse_text(solution_str)
     ref_belief, ref_resp = parse_text(ground_truth)
     if pred_belief=="" or pred_resp=="":
         print("ERROR SOLUTION STR EMPTY")
-        print(solution_str)
-        #print("----------end----------- \n")
-        #print("----------end----------- \n")
     if ref_belief == "":
         print("ERROR GOLD BELIEF EMPTY")
-        #print("++++++++++++++++++++++== starts: \n ", ground_truth)
-        #print("----------end----------- \n")
     if ref_resp == "":
         print("ERROR GOLD REPSONSE MEPTY")
 

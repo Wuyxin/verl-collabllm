@@ -123,7 +123,7 @@ class RLHFDataset(Dataset):
             self.speak_as = True
         else:
             self.speak_as = False
-
+        
         self._download()
         self._read_files_and_tokenize()
 
@@ -284,6 +284,7 @@ class RLHFDataset(Dataset):
                 raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, speak_as=row_dict['extra_info']['name'], tokenize=False)
             else:
                 raw_prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+
             model_inputs = self.tokenizer(raw_prompt, return_tensors="pt", add_special_tokens=False)
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
