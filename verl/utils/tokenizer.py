@@ -58,6 +58,12 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         kwargs["eos_token"] = "<end_of_turn>"
         kwargs["eos_token_id"] = 107
     tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
+
+    # [LLM_TWIN] if chat template path exists, use it
+    chat_template_path = kwargs.get("chat_template_path")
+    if chat_template_path:
+        with open(chat_template_path, "r", encoding="utf-8") as f:
+            tokenizer.chat_template = f.read()
     if correct_pad_token:
         set_pad_token_id(tokenizer)
     return tokenizer

@@ -122,7 +122,9 @@ class TaskRunner:
         from verl.utils import hf_processor, hf_tokenizer
 
         trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+
+        # [LLM_TWIN] pass in the data kwarg w/ custom chat template
+        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code, **config.data.kwargs)
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 

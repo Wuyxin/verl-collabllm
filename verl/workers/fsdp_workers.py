@@ -239,7 +239,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+
+        # [LLM_TWIN] pass in path to chat template
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code, **self.config.kwargs)
         self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
         if self.config.model.get("custom_chat_template", None) is not None:
@@ -1001,7 +1003,9 @@ class CriticWorker(Worker, DistProfilerExtension):
         # using random initialized model from any architecture. May not be the same as Actor.
 
         tokenizer_path = copy_to_local(config.model.tokenizer_path, use_shm=use_shm)
-        self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
+
+        # [LLM_TWIN] pass in path to chat template
+        self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False), **self.config.kwargs)
         self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get("trust_remote_code", False))
 
         if self.config.model.get("custom_chat_template", None) is not None:
@@ -1376,10 +1380,12 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         else:
             self._do_switch_chat_template = True
             input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer, use_shm=use_shm)
+
+            # [LLM_TWIN] pass in path to chat template for both tokenizers
             self.input_tokenizer = hf_tokenizer(
-                input_tokenizer_local_path, trust_remote_code=config.model.get("trust_remote_code", False)
+                input_tokenizer_local_path, trust_remote_code=config.model.get("trust_remote_code", False), **self.config.kwargs
             )
-            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get("trust_remote_code", False))
+            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get("trust_remote_code", False), **self.config.kwargs)
 
         trust_remote_code = config.model.get("trust_remote_code", False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
