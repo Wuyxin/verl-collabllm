@@ -26,8 +26,8 @@ from verl.workers.reward_manager.abstract import AbstractRewardManager
 @register("naive")
 class NaiveRewardManager(AbstractRewardManager):
     """The reward manager."""
-
-    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source") -> None:
+    # [LLM_TWIN] added custom_reward_config param
+    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key="data_source", custom_reward_config=None) -> None:
         """
         Initialize the NaiveRewardManager instance.
 
@@ -42,6 +42,9 @@ class NaiveRewardManager(AbstractRewardManager):
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or default_compute_score
         self.reward_fn_key = reward_fn_key  # Store the key for accessing the data source
+
+        # [LLM_TWIN] added below line
+        self.custom_reward_config = custom_reward_config
 
     def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
         """We will expand this function gradually based on the available datasets"""
@@ -81,6 +84,10 @@ class NaiveRewardManager(AbstractRewardManager):
             extra_info = data_item.non_tensor_batch.get("extra_info", {})
             num_turns = data_item.non_tensor_batch.get("__num_turns__", None)
             extra_info["num_turns"] = num_turns
+
+            # [LLM_TWIN] put reward config in extra info of data
+            if self.custom_reward_config is not None:
+                extra_info["custom_reward_config"] = self.custom_reward_config
 
             score = self.compute_score(
                 data_source=data_source,

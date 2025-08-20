@@ -22,8 +22,8 @@ python3 -m verl.trainer.main_ppo \
     reward_model.enable=False \
     custom_reward_function.path="$VERL_PATH/recipe/usim/reward.py"   \
     custom_reward_function.name="compute_reward" \
-    '+custom_reward_function.reward_config.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
-    '+custom_reward_function.reward_config.response_metrics=[{type: rougeL, weight: 0.25}, {type: bleu, weight: 0.4}, {type: rouge1, weight: 0.25},  {type: rouge2, weight: 0.1}]' \
+    '+reward_model.reward_kwargs.custom_reward_config.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
+    '+reward_model.reward_kwargs.custom_reward_config.response_metrics=[{type: rougeL, weight: 0.25}, {type: bleu, weight: 0.4}, {type: rouge1, weight: 0.25},  {type: rouge2, weight: 0.1}]' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test.parquet \
     +data.cache_dir='/lfs/ampere4/0/echoi1/verl_cache' \
