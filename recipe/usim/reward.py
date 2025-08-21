@@ -153,7 +153,7 @@ def compute_reward(data_source, solution_str, ground_truth, extra_info=None):
     ref_belief, ref_resp = parse_text(ground_truth)
     if pred_belief=="" or pred_resp=="":
         print("ERROR SOLUTION STR EMPTY")
-        print("[SOlUTION STR] ", solution_str)
+        print("[SOlUTION STR]******************\n", solution_str, '\n******************')
     if ref_belief == "":
         print("ERROR GOLD BELIEF EMPTY")
     if ref_resp == "":

@@ -10,7 +10,7 @@ DATA_PATH="/dfs/project/kgrlm/common/llm_twin/reddit"
 OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs"
 CACHE_DIR="/dfs/project/kgrlm/common/llm_twin/verl_cache"
 
-export CUDA_VISIBLE_DEVICES=2,3
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 export NEW_HF_CACHE=/dfs/project/kgrlm/common/llm_twin/hf-cache
 
 export HF_HOME="$NEW_HF_CACHE"
@@ -32,8 +32,8 @@ python3 -m verl.trainer.main_ppo \
     +data.cache_dir=$CACHE_DIR \
     data.train_batch_size=4 \
     +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja"\
-    data.max_prompt_length=600 \
-    data.max_response_length=2048 \
+    data.max_prompt_length=512 \
+    data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     +actor_rollout_ref.kwargs.custom_chat_template="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja" \
