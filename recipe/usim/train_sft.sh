@@ -20,6 +20,11 @@ echo "Model: $MODEL_PATH"
 echo "Data: $DATA_PATH"
 echo "Output: $OUTPUT_DIR"
 
+# CHECKLIST:
+# 1) Jinja template - w/ or w/o belief formatting?
+# 2) Response only vs with belief in data path 
+# 3) Change max_length depending on the data
+
 # Launch training
 python3 -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=2 \
     -m verl.trainer.fsdp_sft_trainer \

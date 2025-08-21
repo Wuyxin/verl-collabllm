@@ -61,7 +61,7 @@ def add_missing_closing_tags(s: str) -> str:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_dir', default='/lfs/ampere4/0/echoi1/digitial-human-lm/data/reddit')
-    parser.add_argument('--hf_repo', default='snap-stanford/synthetic_subreddit_advice')
+    parser.add_argument('--hf_repo', default='snap-stanford/synthetic_subreddit')
     parser.add_argument('--hdfs_dir', default=None)
     parser.add_argument('--data_source', default='user-sim/generation')
     parser.add_argument('--prompt_template', default='recipe/usim/character_template.txt')

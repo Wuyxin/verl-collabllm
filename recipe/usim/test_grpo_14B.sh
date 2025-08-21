@@ -3,15 +3,12 @@ ENGINE=${1:-vllm}
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
-chmod -R 777 /dfs/project/kgrlm/common/llm_twin
+DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl"
+VERL_PATH="/lfs/ampere4/0/echoi1/collabllm/verl-collabllm"
+OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs/reddit_grpo_8gpu"
 
-VERL_PATH="../verl"
-DATA_PATH="/dfs/project/kgrlm/common/llm_twin/reddit"
-OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs"
-CACHE_DIR="/dfs/project/kgrlm/common/llm_twin/verl_cache"
-
-export CUDA_VISIBLE_DEVICES=4,5,6,7
-export NEW_HF_CACHE=/dfs/project/kgrlm/common/llm_twin/hf-cache
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export NEW_HF_CACHE=/dfs/scratch0/echoi1/hf-cache
 
 export HF_HOME="$NEW_HF_CACHE"
 export HUGGINGFACE_HUB_CACHE="$NEW_HF_CACHE/hub"
@@ -34,15 +31,14 @@ python3 -m verl.trainer.main_ppo \
     '+reward_model.reward_kwargs.custom_reward_config.response_metrics=[{type: rougeL, weight: 0.25}, {type: bleu, weight: 0.4}, {type: rouge1, weight: 0.25},  {type: rouge2, weight: 0.1}]' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test.parquet \
-    +data.cache_dir=$CACHE_DIR \
     data.train_batch_size=4 \
     +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja"\
-    data.max_prompt_length=512 \
-    data.max_response_length=1024 \
+    data.max_prompt_length=3000 \
+    data.max_response_length=3000 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     +actor_rollout_ref.kwargs.custom_chat_template="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja" \
-    actor_rollout_ref.model.path="Qwen/Qwen2.5-7B-Instruct" \
+    actor_rollout_ref.model.path="/dfs/scratch0/echoi1/hf-models/Qwen2.5-14B-Instruct" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.lora_rank=16 \
     actor_rollout_ref.model.lora_alpha=32 \
