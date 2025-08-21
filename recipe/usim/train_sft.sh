@@ -1,9 +1,9 @@
 set -e
 set -x  # Print commands
 
-OUTPUT_DIR="/dfs/scratch0/echoi1/verl/sft_reddit"
-DATA_DIR="/lfs/ampere1/0/echoi1/digitial-human-lm/data/reddit_sft"
-VERL_DIR="/lfs/ampere1/0/echoi1/digitial-human-lm/verl"
+DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit_sft"
+VERL_PATH="/lfs/ampere4/0/echoi1/collabllm/verl-collabllm"
+OUTPUT_DIR="/dfs/scratch0/echoi1/verl/grpo"
 
 export CUDA_VISIBLE_DEVICES=4,5
 export NEW_HF_CACHE=/dfs/scratch0/echoi1/hf-cache
@@ -17,15 +17,15 @@ export VLLM_DOWNLOAD_DIR="$NEW_HF_CACHE/hub"
 
 echo "Starting SFT Training"
 echo "Model: $MODEL_PATH"
-echo "Data: $DATA_DIR"
+echo "Data: $DATA_PATH"
 echo "Output: $OUTPUT_DIR"
 
 # Launch training
 python3 -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=2 \
     -m verl.trainer.fsdp_sft_trainer \
-    data.train_files="$DATA_DIR/train.parquet" \
-    data.val_files="$DATA_DIR/val.parquet" \
-    +data.chat_template_path="$VERL_DIR/recipe/usim/qwen_multi_role_template.jinja"\
+    data.train_files="$DATA_PATH/train.parquet" \
+    data.val_files="$DATA_PATH/val.parquet" \
+    +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja"\
     data.multiturn.enable=false \
     data.max_length=3000 \
     data.train_batch_size=2 \

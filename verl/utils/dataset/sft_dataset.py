@@ -124,7 +124,8 @@ class SFTDataset(Dataset):
         prompt_chat = [{"role": "user", "content": prompt}]
 
         # string
-        prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, tokenize=False)
+        # [LLM_TWIN] Adding speak_as var for the chat template
+        prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, speak_as=self.names[item], tokenize=False)
         response_chat_str = response + tokenizer.eos_token
 
         # tokenize

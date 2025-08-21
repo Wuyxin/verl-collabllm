@@ -782,9 +782,11 @@ def run_sft(config):
     )
     # build tokenizer and datasets first
     from verl.utils import hf_tokenizer
-
+    
     local_model_path = copy_to_local(src=config.model.partial_pretrain, verbose=True)
-    tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
+
+    # [LLM_TWIN] Add the custom chat template form config.data.kwargs
+    tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code, **config.data.kwargs)
     train_dataset = create_sft_dataset(config.data.train_files, config.data, tokenizer)
     val_dataset = create_sft_dataset(config.data.val_files, config.data, tokenizer)
 

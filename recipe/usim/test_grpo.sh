@@ -3,7 +3,7 @@ set -x
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
-DATA_PATH="/lfs/ampere4/0/echoi1/digitial-human-lm/data/reddit"
+DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit"
 VERL_PATH="/lfs/ampere4/0/echoi1/collabllm/verl-collabllm"
 OUTPUT_DIR="/dfs/scratch0/echoi1/verl/grpo"
 

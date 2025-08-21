@@ -16,7 +16,7 @@ from pathlib import Path
 '''
 
 def extract_response_block(text):
-    m = re.search(r'(<response>.*?</response>)', text, flags=re.DOTALL)
+    m = re.search(r'<response>\s*(.*?)\s*</response>', text,flags=re.DOTALL)
     return m.group(1) if m else None
 
 def fix_tags(s):
@@ -57,7 +57,7 @@ def add_missing_closing_tags(s: str) -> str:
 
     return text
 
-
+# WARNING: Make sure to change prompt template if doing response_only
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--local_dir', default='/lfs/ampere4/0/echoi1/digitial-human-lm/data/reddit')
@@ -102,9 +102,12 @@ if __name__ == '__main__':
             
             response = example.pop("response")
             if args.response_only:
+                response = fix_tags(response)
+                response = add_missing_closing_tags(response)
                 response = extract_response_block(response)  # if response is true, only take response
-            response = fix_tags(response)
-            response = add_missing_closing_tags(response)
+            else:
+                response = fix_tags(response)
+                response = add_missing_closing_tags(response)
 
             user_prompt = "You are responding to this Reddit post: " + post
             values = {
@@ -112,6 +115,7 @@ if __name__ == '__main__':
                 "description": example["character"]["description"],
                 "media_source": example["character"]["media_source"],
             }
+            
             system_content = fix_tags(raw_template.format(**values))    # print this out to check it's correct
 
             data = {
