@@ -110,6 +110,8 @@ class SFTDataset(Dataset):
         if isinstance(self.responses, pd.DataFrame):
             self.responses = self.responses.squeeze()
         self.responses = self.responses.tolist()
+        # [LLM_TWIN] keep track of names for speak_as
+        self.names = self.dataframe["name"].tolist()
 
     def __len__(self):
         return len(self.prompts)
@@ -121,11 +123,13 @@ class SFTDataset(Dataset):
         response = self.responses[item]
 
         # apply chat template
-        prompt_chat = [{"role": "user", "content": prompt}]
+        # [LLM_TWIN] Editing for custom system prompt compatibility
+        prompt_chat = prompt #[{"role": "user", "content": prompt}]
 
         # string
         # [LLM_TWIN] Adding speak_as var for the chat template
         prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, speak_as=self.names[item], tokenize=False)
+
         response_chat_str = response + tokenizer.eos_token
 
         # tokenize

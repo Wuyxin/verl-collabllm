@@ -1,11 +1,11 @@
 set -e
 set -x  # Print commands
 
-DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit_sft"
+DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/sft"
 VERL_PATH="/lfs/ampere4/0/echoi1/collabllm/verl-collabllm"
-OUTPUT_DIR="/dfs/scratch0/echoi1/verl/grpo"
+OUTPUT_DIR="/dfs/scratch0/echoi1/delete"
 
-export CUDA_VISIBLE_DEVICES=4,5
+export CUDA_VISIBLE_DEVICES=0,1
 export NEW_HF_CACHE=/dfs/scratch0/echoi1/hf-cache
 
 export HF_HOME="$NEW_HF_CACHE"
@@ -24,15 +24,15 @@ echo "Output: $OUTPUT_DIR"
 python3 -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=2 \
     -m verl.trainer.fsdp_sft_trainer \
     data.train_files="$DATA_PATH/train.parquet" \
-    data.val_files="$DATA_PATH/val.parquet" \
+    data.val_files="$DATA_PATH/test.parquet" \
     +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja"\
     data.multiturn.enable=false \
     data.max_length=3000 \
     data.train_batch_size=2 \
-    data.prompt_key=prompt \
-    data.response_key=response \
+    data.prompt_key=messages \
+    data.response_key=generation \
     data.micro_batch_size_per_gpu=1 \
-    model.partial_pretrain="Qwen/Qwen2.5-14B" \
+    model.partial_pretrain="Qwen/Qwen2.5-0.5B" \
     model.fsdp_config.model_dtype=bfloat16 \
     model.enable_gradient_checkpointing=true \
     optim.lr=2e-5 \
