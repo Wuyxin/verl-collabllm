@@ -88,7 +88,7 @@ class UsimRewardManager(AbstractRewardManager):
 
         # Compute mean of weighted scores for each metric
         mean_weighted_scores_by_metrics = {
-            f"customized/{metric}": weighted_scores_by_metrics[metric].mean(dim=0).item()
+            f"customized_score/{metric}": weighted_scores_by_metrics[metric].mean(dim=0).item()
             for metric in self.metrics
         }
 

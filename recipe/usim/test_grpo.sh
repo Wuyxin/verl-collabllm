@@ -13,7 +13,7 @@ DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl"
 OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs/$EXP_NAME"
 CACHE_DIR="/dfs/project/kgrlm/common/llm_twin/verl_cache"
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 export NEW_HF_CACHE=/dfs/project/kgrlm/common/llm_twin/hf-cache/shirwu
 
 export HF_HOME="$NEW_HF_CACHE"
@@ -35,8 +35,8 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.path="$VERL_PATH/recipe/usim/reward.py" \
     custom_reward_function.name="compute_reward" \
     '+reward_model.reward_kwargs.metric_weights={belief: 0.5, response: 0.5}' \
-    '+reward_model.reward_kwargs.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cuda}]' \
-    '+reward_model.reward_kwargs.response_metrics=[{type: bertscore, weight: 1.0, model: null, device: cuda}]' \
+    '+reward_model.reward_kwargs.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
+    '+reward_model.reward_kwargs.response_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test.parquet \
     +data.cache_dir=$CACHE_DIR \
