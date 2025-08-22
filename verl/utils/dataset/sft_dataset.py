@@ -129,8 +129,9 @@ class SFTDataset(Dataset):
         # string
         # [LLM_TWIN] Adding speak_as var for the chat template
         prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, speak_as=self.names[item], tokenize=False)
-
+        print("===============================\n\n\n\n\n\n\n")
         response_chat_str = response + tokenizer.eos_token
+        print('[Prompt response str]', response_chat_str)
 
         # tokenize
         prompt_ids_output = tokenizer(prompt_chat_str, return_tensors="pt", add_special_tokens=False)

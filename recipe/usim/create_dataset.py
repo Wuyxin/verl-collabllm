@@ -114,6 +114,7 @@ if __name__ == '__main__':
                 "name": example["character"]["name"],
                 "description": example["character"]["description"],
                 "media_source": example["character"]["media_source"],
+                "memory" : None
             }
             
             system_content = fix_tags(raw_template.format(**values))    # print this out to check it's correct

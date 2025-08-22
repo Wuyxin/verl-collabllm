@@ -27,32 +27,58 @@ BELIEF_OPEN  = re.compile(r"<belief>", re.I)
 BELIEF_CLOSE = re.compile(r"</belief>|<\\belief>", re.I)
 RESP_OPEN    = re.compile(r"<response>", re.I)
 RESP_CLOSE   = re.compile(r"</response>|<\\response>", re.I)
+MEM_OPEN     = re.compile(r"<memory>", re.I)
+MEM_CLOSE    = re.compile(r"</memory>|<\\memory>", re.I)
+
 
 '''
-    Returns parsed belief and resonse text from string with <belief> and <response> tokens.
-    If we have a belief but no response tags, assume the rest outside is a response.
+    Returns parsed belief, response, and memory text from a string with
+    <belief>...</belief>, <response>...</response>, and <memory>...</memory> tokens.
 
     Edge Cases to consider:
-        - Accepts wrong backslash for tokens, i.e. <\belief>
-        - If there is no opening or closing belief token, belief is ""
-        - If there is no <response>, assumes the rest of the text (outside possible belief tokens) is the response
-        - If there is a <response> but no <\response>, we assume the response runs until the end of the text
+      - If there is no opening belief token, takes everything from beginning to closing belief token as belief.
+      - Accepts wrong backslash for closing tokens: <\belief>, <\response>, <\memory>
+      - If there is no opening or closing belief token, belief = ""
+      - If there is no <response>, assumes the rest of the text (outside possible belief/memory) is the response
+      - If there is a <response> but no </response>, it runs until <memory> if present, else to the end
+      - If there is a <memory> but no </memory>, it runs until the end
 '''
+def parse_text(text):
+    belief, response, memory = "", text, ""
 
-def parse_text(text: str) -> Tuple[str, str]:
-    belief, response = "", text
-    belief_open = BELIEF_OPEN.search(text)
-    if belief_open:
-        belief_closed = BELIEF_CLOSE.search(text, belief_open.end())
-        if belief_closed:
-            belief = text[belief_open.end():belief_closed.start()].strip()
-    response_open = RESP_OPEN.search(text)
-    if response_open:
-        response_close = RESP_CLOSE.search(text, response_open.end())
-        response = text[response_open.end(): response_close.start()].strip() if response_close else text[response_open.end():].strip()
-    elif belief:
-        response = BELIEF_CLOSE.sub("", BELIEF_OPEN.sub("", text)).strip()
-    return belief, response
+    b_open = BELIEF_OPEN.search(text)
+    b_close = BELIEF_CLOSE.search(text, b_open.end()) if b_open else BELIEF_CLOSE.search(text)
+    b_span = None
+    if b_open and b_close:
+        belief = text[b_open.end():b_close.start()].strip()
+        b_span = (b_open.start(), b_close.end()) 
+    elif (not b_open) and b_close:
+        belief = text[:b_close.start()].strip()
+        b_span = (0, b_close.end())
+
+    m_open = MEM_OPEN.search(text)
+    m_close = MEM_CLOSE.search(text, m_open.end()) if m_open else None
+    if m_open:
+        memory = text[m_open.end():m_close.start()].strip() if m_close else text[m_open.end():].strip()
+
+    r_open = RESP_OPEN.search(text)
+    if r_open:
+        r_close = RESP_CLOSE.search(text, r_open.end())
+        if r_close:
+            response = text[r_open.end():r_close.start()].strip()
+        else:
+            r_end = m_open.start() if (m_open and m_open.start() >= r_open.end()) else len(text)
+            response = text[r_open.end():r_end].strip()
+    else:
+        leftover = text
+        if b_span is not None:
+            leftover = leftover[:b_span[0]] + leftover[b_span[1]:]
+        else:
+            leftover = BELIEF_CLOSE.sub("", BELIEF_OPEN.sub("", leftover))
+        if m_open:
+            leftover = leftover[:m_open.start()] + (leftover[m_close.end():] if m_close else "")
+        response = leftover.strip()
+    return belief, response, memory
 
 
 @cache
@@ -149,11 +175,11 @@ EXAMPLE_CFG = {
 def compute_reward(data_source, solution_str, ground_truth, extra_info=None):
     cfg = {**(extra_info["custom_reward_config"] or {})}
 
-    pred_belief, pred_resp = parse_text(solution_str)
-    ref_belief, ref_resp = parse_text(ground_truth)
+    pred_belief, pred_resp, pred_memory = parse_text(solution_str)
+    ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
+    print("[SOlUTION STR]******************\n", solution_str, '\n******************')
     if pred_belief=="" or pred_resp=="":
         print("ERROR SOLUTION STR EMPTY")
-        print("[SOlUTION STR]******************\n", solution_str, '\n******************')
     if ref_belief == "":
         print("ERROR GOLD BELIEF EMPTY")
     if ref_resp == "":
