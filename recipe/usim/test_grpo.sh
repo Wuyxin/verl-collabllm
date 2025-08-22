@@ -7,7 +7,7 @@ chmod -R 777 /dfs/project/kgrlm/common/llm_twin
 
 export WANDB_ENTITY=dsp-team
 
-EXP_NAME=qwen2_5_vl_7b_function_rm
+EXP_NAME=qwen2_5_vl_7b
 VERL_PATH="../verl"
 DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl"
 OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs/$EXP_NAME"
@@ -35,12 +35,13 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.path="$VERL_PATH/recipe/usim/reward.py" \
     custom_reward_function.name="compute_reward" \
     '+reward_model.reward_kwargs.metric_weights={belief: 0.5, response: 0.5}' \
-    '+reward_model.reward_kwargs.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
-    '+reward_model.reward_kwargs.response_metrics=[{type: bleu, weight: 1.0}]' \
+    '+reward_model.reward_kwargs.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cuda}]' \
+    '+reward_model.reward_kwargs.response_metrics=[{type: bertscore, weight: 1.0, model: null, device: cuda}]' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test.parquet \
     +data.cache_dir=$CACHE_DIR \
-    data.train_batch_size=4 \
+    data.train_batch_size=8 \
+    data.val_batch_size=128 \
     +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template_belief.jinja"\
     data.max_prompt_length=2048 \
     data.max_response_length=1024 \
@@ -49,8 +50,8 @@ python3 -m verl.trainer.main_ppo \
     +actor_rollout_ref.kwargs.custom_chat_template="$VERL_PATH/recipe/usim/qwen_multi_role_template_belief.jinja" \
     actor_rollout_ref.model.path="Qwen/Qwen2.5-7B-Instruct" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.model.lora_rank=16 \
-    actor_rollout_ref.model.lora_alpha=32 \
+    actor_rollout_ref.model.lora_rank=32 \
+    actor_rollout_ref.model.lora_alpha=64 \
     actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=4 \
     actor_rollout_ref.rollout.load_format=safetensors \
@@ -68,14 +69,14 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.1 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.dtype=bfloat16 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.n=8 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.rollout.n=4 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.actor.ppo_epochs=1 \
-    actor_rollout_ref.rollout.temperature=0.7 \
+    actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.7 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=True \
