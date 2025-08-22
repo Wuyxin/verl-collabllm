@@ -108,11 +108,12 @@ if __name__ == '__main__':
             else:
                 response = fix_tags(response)
                 response = add_missing_closing_tags(response)
-            user_prompt = "You are responding to this Reddit post: " + post
+            user_prompt = post
             values = {
                 "name": example["character"]["name"],
                 "description": example["character"]["description"],
-                "media_source": example["character"]["media_source"],
+                "platform": "Reddit",
+                "memory": None
             }
             
             system_content = fix_tags(raw_template.format(**values))    # print this out to check it's correct
@@ -120,7 +121,7 @@ if __name__ == '__main__':
             return {
             "messages": [                  
                 {"role": "system", "content": system_content},
-                {"role": "user",   "content": user_prompt},
+                {"role": "user",  "name": "author of the post", "content": user_prompt},
             ],
             "generation": response,  
             "name": example["character"]["name"],                 

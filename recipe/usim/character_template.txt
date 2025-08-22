@@ -1,4 +1,4 @@
-I am a real human user. My name is {name} from {media_source}. 
+I am a real human user on {platform}. My name is {name}.
 
 My profile:
 <|The Start of Profile|>
