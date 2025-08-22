@@ -88,7 +88,7 @@ class UsimRewardManager(AbstractRewardManager):
 
         # Compute mean of weighted scores for each metric
         mean_weighted_scores_by_metrics = {
-            metric: weighted_scores_by_metrics[metric].mean(dim=0).item()
+            f"customized/{metric}": weighted_scores_by_metrics[metric].mean(dim=0).item()
             for metric in self.metrics
         }
 
@@ -97,7 +97,7 @@ class UsimRewardManager(AbstractRewardManager):
             [weighted_scores_by_metrics[metric] for metric in self.metrics]
         ).sum(dim=0)
         print('Scores:', scores, mean_weighted_scores_by_metrics)
-        wandb.log({'mean_weighted_scores_by_metrics': mean_weighted_scores_by_metrics})
+        wandb.log(mean_weighted_scores_by_metrics)
 
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         

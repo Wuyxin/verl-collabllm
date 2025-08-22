@@ -234,7 +234,7 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
     pred_belief, pred_resp, pred_memory = parse_text(generation)
     ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
 
-    print("\n========== [SOLUTION STRING] ==========")
+    print("\n========== [Generation] ==========")
     print(generation)
     print("=======================================\n")
 
