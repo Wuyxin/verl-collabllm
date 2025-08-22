@@ -3,12 +3,16 @@ ENGINE=${1:-vllm}
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
+chmod -R 777 /dfs/project/kgrlm/common/llm_twin
+
 DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl"
-VERL_PATH="/lfs/ampere4/0/echoi1/collabllm/verl-collabllm"
+# VERL_PATH="/lfs/ampere4/0/echoi1/collabllm/verl-collabllm"
+VERL_PATH="../verl"
 OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs/reddit_grpo_8gpu"
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export NEW_HF_CACHE=/dfs/scratch0/echoi1/hf-cache
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export NEW_HF_CACHE=/dfs/scratch0/echoi1/hf-cache
+export NEW_HF_CACHE=/dfs/project/kgrlm/common/llm_twin/hf-cache
 
 export HF_HOME="$NEW_HF_CACHE"
 export HUGGINGFACE_HUB_CACHE="$NEW_HF_CACHE/hub"
@@ -27,8 +31,9 @@ python3 -m verl.trainer.main_ppo \
     reward_model.enable=False \
     custom_reward_function.path="$VERL_PATH/recipe/usim/reward.py"   \
     custom_reward_function.name="compute_reward" \
-    '+reward_model.reward_kwargs.custom_reward_config.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
-    '+reward_model.reward_kwargs.custom_reward_config.response_metrics=[{type: rougeL, weight: 0.25}, {type: bleu, weight: 0.4}, {type: rouge1, weight: 0.25},  {type: rouge2, weight: 0.1}]' \
+    '+reward_model.reward_kwargs.metric_weights={belief: 0.5, response: 0.5}' \
+    '+reward_model.reward_kwargs.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
+    '+reward_model.reward_kwargs.response_metrics=[{type: bleu, weight: 1.0}]' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test.parquet \
     data.train_batch_size=4 \
@@ -58,7 +63,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.1 \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
@@ -77,8 +82,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_reddit' \
-    trainer.experiment_name='qwen2_5_vl_7b_function_rm' \
-    trainer.n_gpus_per_node=8 \
+    trainer.experiment_name='qwen2_5_vl_14b_function_rm' \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.default_local_dir="$OUTPUT_DIR" \
     trainer.save_freq=50 \
