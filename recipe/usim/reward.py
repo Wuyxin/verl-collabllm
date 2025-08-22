@@ -247,7 +247,7 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
     if pred_belief:
         # Belief reward
         if belief_metrics:
-            belief_score, _ = await run_metrics(  # Added await
+            belief_score, _ = await run_metrics( 
                 ref_belief, pred_belief, belief_metrics
             )
         else:
@@ -259,7 +259,7 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
         
     if pred_resp:
         # Response reward
-        resp_score, _ = await run_metrics(  # Added await
+        resp_score, _ = await run_metrics( 
             ref_resp, pred_resp, response_metrics
         )
     else:
