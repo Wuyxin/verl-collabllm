@@ -3,18 +3,19 @@ ENGINE=${1:-vllm}
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
-chmod -R 777 /dfs/project/kgrlm/common/llm_twin
 
-export WANDB_ENTITY=dsp-team
+VERL_PATH="./"
+DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl"
+OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs"
 
-EXP_NAME=qwen2_5_vl_7b
+EXP_NAME=qwen2_5_vl_7b_function_rm
 VERL_PATH="../verl"
 DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl"
 OUTPUT_DIR="/dfs/project/kgrlm/common/llm_twin/outputs/$EXP_NAME"
 CACHE_DIR="/dfs/project/kgrlm/common/llm_twin/verl_cache"
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-export NEW_HF_CACHE=/dfs/project/kgrlm/common/llm_twin/hf-cache/shirwu
+export NEW_HF_CACHE=/dfs/project/kgrlm/common/llm_twin/hf-cache
 
 export HF_HOME="$NEW_HF_CACHE"
 export HUGGINGFACE_HUB_CACHE="$NEW_HF_CACHE/hub"
@@ -25,7 +26,7 @@ export VLLM_DOWNLOAD_DIR="$NEW_HF_CACHE/hub"
 export VERL_CACHE_DIR="$NEW_HF_CACHE/verl-cache"
 
 # CHECKLIST:
-# 1) Jinja template - w/ or w/o belief formatting?
+# 1) BOTH Jinja templates - w/ or w/o belief formatting?
 # 2) Response only vs with belief in data path 
 
 python3 -m verl.trainer.main_ppo \
@@ -35,15 +36,15 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.path="$VERL_PATH/recipe/usim/reward.py" \
     custom_reward_function.name="compute_reward" \
     '+reward_model.reward_kwargs.metric_weights={belief: 0.5, response: 0.5}' \
-    '+reward_model.reward_kwargs.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cuda}]' \
-    '+reward_model.reward_kwargs.response_metrics=[{type: bertscore, weight: 1.0, model: null, device: cuda}]' \
+    '+reward_model.reward_kwargs.belief_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
+    '+reward_model.reward_kwargs.response_metrics=[{type: bertscore, weight: 1.0, model: null, device: cpu}]' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test.parquet \
     +data.cache_dir=$CACHE_DIR \
     data.train_batch_size=8 \
     data.val_batch_size=128 \
     +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template_belief.jinja"\
-    data.max_prompt_length=2048 \
+    data.max_prompt_length=3012 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
@@ -53,7 +54,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.lora_rank=32 \
     actor_rollout_ref.model.lora_alpha=64 \
     actor_rollout_ref.rollout.free_cache_engine=True \
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=4 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=4 \
@@ -87,7 +88,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='verl_grpo_reddit' \
-    trainer.experiment_name=$EXP_NAME \
+    trainer.experiment_name='qwen2_5_vl_7b_function_rm' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.default_local_dir="$OUTPUT_DIR" \

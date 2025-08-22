@@ -78,14 +78,43 @@ def parse_text(text: str) -> Tuple[str, str, str]:
 
 
 # Enhanced caching with LRU
+# '/dfs/project/kgrlm/common/llm_twin/hf-cache/hub/models--microsoft--deberta-xlarge-mnli'
 @lru_cache(maxsize=8)
 def _get_bert_scorer(model_type: str, device: str) -> BERTScorer:
     return BERTScorer(
-        model_type=model_type,    
+        model_type=model_type, 
         rescale_with_baseline=True,
         lang='en',
-        device=device
+        device='cpu'
     )
+
+from concurrent.futures import ProcessPoolExecutor
+_BERT_EXEC = None
+
+def _init_bert_worker(model_dir, device):
+    import os
+    os.environ["ACCELERATE_INIT_EMPTY_WEIGHTS"] = "0"
+    from bert_score import BERTScorer
+    global _SC
+    _SC = BERTScorer(model_type=model_dir, lang="en",
+                     rescale_with_baseline=False, device=device,
+                     use_fast_tokenizer=True, local_files_only=True)
+
+def _bert_f1_one(args):
+    cand, ref = args
+    _, _, F1 = _SC.score([cand], [ref])
+    return float(F1.mean())
+
+async def bertscore_async(ref, out, model_dir, device="cuda"):
+    if not ref or not out: return 0.0
+    global _BERT_EXEC
+    if _BERT_EXEC is None:
+        _BERT_EXEC = ProcessPoolExecutor(max_workers=1,
+                                         initializer=_init_bert_worker,
+                                         initargs=(model_dir, device))
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_BERT_EXEC, _bert_f1_one, (out, ref))
+
 
 # Thread-safe rouge scorer cache
 _ROUGE_SCORERS: Dict[str, rouge_scorer.RougeScorer] = {}
@@ -131,7 +160,7 @@ def bleu(ref: str, output: str) -> float:
     return float(sentence_bleu([ref_t], out_t, weights=weights, smoothing_function=_SMOOTH))
 
 
-async def rouge(ref: str, output: str, rouge_type: str) -> float:
+async def rouge2(ref: str, output: str, rouge_type: str) -> float:
     """Async rouge computation with early validation."""
     if not ref or not output:
         return 0.0
@@ -176,6 +205,16 @@ def aggregate(weighted_scores: List[Tuple[float, float]]) -> float:
 ROUGE_TYPES = {"rougeL", "rouge1", "rouge2"}
 EDIT_TYPES = {"edit", "edit_sim", "levenshtein"}
 
+def _bleu_sync(ref, out): return bleu(ref, out)
+def _edit_sync(ref, out): return edit_sim(ref, out)
+
+async def rouge(ref, out, rouge_type):
+    if not ref or not out: return 0.0
+    scorer = await _get_rouge_scorer(rouge_type)
+    loop = asyncio.get_running_loop()
+    scores = await loop.run_in_executor(None, scorer.score, ref, out)
+    return float(scores[rouge_type].fmeasure)
+
 
 async def run_metrics(ref: str, output: str, metrics_cfg: List[Dict[str, Any]]) -> Tuple[float, Dict[str, float]]:
     """Optimized metrics computation with async support and batching."""
@@ -211,13 +250,13 @@ async def run_metrics(ref: str, output: str, metrics_cfg: List[Dict[str, Any]]) 
         w = float(m.get("weight", 1.0))
         
         if metric_type == "bleu":
-            value = bleu(ref, output)
+            value = await asyncio.get_running_loop().run_in_executor(None, _bleu_sync, ref, output)
             breakdown["bleu"] = value
         elif metric_type in EDIT_TYPES:
-            value = edit_sim(ref, output)
+            value = await asyncio.get_running_loop().run_in_executor(None, _edit_sync, ref, output)
             breakdown["edit_sim"] = value
         elif metric_type == "bertscore":       
-            value = bertscore(ref, output, m.get("model"), m.get("device", "cpu"))
+            value = await bertscore_async(ref, output, m.get("model"), m.get("device","cpu"))
             breakdown["bertscore"] = value
         else:                        
             value = 0.0
@@ -234,6 +273,7 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
     pred_belief, pred_resp, pred_memory = parse_text(generation)
     ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
 
+    '''print("\n========== [SOLUTION STRING] ==========")
     print("\n========== [Generation] ==========")
     print(generation)
     print("=======================================\n")
@@ -241,7 +281,7 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
     if not ref_belief:
         print("[Warning] Ground truth belief is empty.")
     if not ref_resp:
-        print("[Warning] Ground truth response is empty.")
+        print("[Warning] Ground truth response is empty.")'''
 
     # Input validation logs
     if pred_belief:
