@@ -109,11 +109,11 @@ if __name__ == '__main__':
                 response = fix_tags(response)
                 response = add_missing_closing_tags(response)
 
-            user_prompt = "You are responding to this Reddit post: " + post
+            user_prompt = post
             values = {
                 "name": example["character"]["name"],
                 "description": example["character"]["description"],
-                "media_source": example["character"]["media_source"],
+                "platform": "Reddit",
                 "memory" : None
             }
             
@@ -128,6 +128,7 @@ if __name__ == '__main__':
                     },
                     {
                         "role": "user",
+                        "name": "author of the post",
                         "content": user_prompt,
                     },
                 ],
