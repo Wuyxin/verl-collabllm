@@ -15,8 +15,9 @@ from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
-
+import threading, time
 import wandb
+
 
 
 @register("usim")
@@ -47,8 +48,11 @@ class UsimRewardManager(AbstractRewardManager):
         # Use asyncio.run to handle the async computation
         return asyncio.run(self._compute_rewards_async(data, return_dict))
     
+    def compute_score_sync(self, *args, **kwargs):
+        result = asyncio.run(self.compute_score(*args, **kwargs))
+        return result
+
     async def _compute_rewards_async(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
-        
         prompt_ids = data.batch["prompts"]
         prompt_length = prompt_ids.shape[-1]
         valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(dim=-1)
@@ -65,11 +69,15 @@ class UsimRewardManager(AbstractRewardManager):
 
         batch_size = len(data_source)
 
+        loop = asyncio.get_running_loop()
         tasks = [
-            self.compute_score(
-                data_source[i], responses[i], ground_truth[i], 
-                self.response_metrics, self.belief_metrics, extra_info[i]
-            ) for i in range(batch_size)
+            loop.run_in_executor(          
+                    None,                      
+                    self.compute_score_sync,  
+                    data_source[i], responses[i], ground_truth[i],
+                    self.response_metrics, self.belief_metrics, extra_info[i],
+                )
+                for i in range(batch_size)
         ]
         score_dicts = await asyncio.gather(*tasks)
 

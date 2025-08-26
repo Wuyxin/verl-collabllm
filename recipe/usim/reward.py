@@ -2,6 +2,8 @@ import re
 from typing import Dict, Any, Tuple, Optional, List
 from functools import lru_cache
 import asyncio
+import threading
+from threading import Lock
 
 from rapidfuzz.distance import Levenshtein
 from rouge_score import rouge_scorer
@@ -19,6 +21,17 @@ RESP_OPEN    = re.compile(r"<response>", re.I)
 RESP_CLOSE   = re.compile(r"</response>|<\\response>", re.I)
 MEM_OPEN     = re.compile(r"<memory>", re.I)
 MEM_CLOSE    = re.compile(r"</memory>|<\\memory>", re.I)
+
+
+# Thread-safe scorer caches with locks
+_ROUGE_SCORERS: Dict[str, rouge_scorer.RougeScorer] = {}
+_ROUGE_LOCK = Lock()
+
+_BERT_SCORERS: Dict[str, BERTScorer] = {}
+_BERT_LOCK = Lock()
+
+# Global lock for BERTScore initialization to prevent conflicts
+_BERT_INIT_LOCK = Lock()
 
 
 # Optimized parsing with early returns and reduced regex operations
@@ -77,33 +90,40 @@ def parse_text(text: str) -> Tuple[str, str, str]:
     return belief, response, memory
 
 
-# Enhanced caching with LRU
-@lru_cache(maxsize=8)
-def _get_bert_scorer(model_type: str, device: str) -> BERTScorer:
-    return BERTScorer(
-        model_type=model_type,    
-        rescale_with_baseline=True,
-        lang='en',
-        device=device
-    )
-
-# Thread-safe rouge scorer cache
-_ROUGE_SCORERS: Dict[str, rouge_scorer.RougeScorer] = {}
-_rouge_lock = asyncio.Lock() if asyncio else None
-
-async def _get_rouge_scorer(rouge_type: str) -> rouge_scorer.RougeScorer:
-    """Async thread-safe rouge scorer getter."""
-    if rouge_type in _ROUGE_SCORERS:
+def _get_rouge_scorer_thread_safe(rouge_type: str) -> rouge_scorer.RougeScorer:
+    """Thread-safe rouge scorer getter with proper locking."""
+    with _ROUGE_LOCK:
+        if rouge_type not in _ROUGE_SCORERS:
+            print(f"Creating new ROUGE scorer for type: {rouge_type}")
+            _ROUGE_SCORERS[rouge_type] = rouge_scorer.RougeScorer([rouge_type], use_stemmer=False)
         return _ROUGE_SCORERS[rouge_type]
+
+
+def _get_bert_scorer_thread_safe(model_type: str, device: str = "cpu") -> BERTScorer:
+    """Thread-safe BERTScore scorer getter with proper locking."""
+    cache_key = f"{model_type}_{device}"
     
-    if _rouge_lock:
-        async with _rouge_lock:
-            if rouge_type not in _ROUGE_SCORERS:
-                _ROUGE_SCORERS[rouge_type] = rouge_scorer.RougeScorer([rouge_type], use_stemmer=False)
-    else:
-        _ROUGE_SCORERS[rouge_type] = rouge_scorer.RougeScorer([rouge_type], use_stemmer=False)
-    
-    return _ROUGE_SCORERS[rouge_type]
+    with _BERT_LOCK:
+        if cache_key not in _BERT_SCORERS:
+            print(f"Creating new BERTScore scorer for model: {model_type}, device: {device}")
+            
+            # Use a separate initialization lock to prevent concurrent model loading
+            with _BERT_INIT_LOCK:
+                # Double-check pattern in case another thread created it while we were waiting
+                if cache_key not in _BERT_SCORERS:
+                    try:
+                        _BERT_SCORERS[cache_key] = BERTScorer(
+                            model_type=model_type,
+                            rescale_with_baseline=True,
+                            lang='en',
+                            device=device
+                        )
+                        print(f"Successfully created BERTScore scorer for {model_type}")
+                    except Exception as e:
+                        print(f"Error creating BERTScore scorer: {e}")
+                        raise
+        
+        return _BERT_SCORERS[cache_key]
 
 
 # Optimized BLEU with pre-computed weights
@@ -131,11 +151,11 @@ def bleu(ref: str, output: str) -> float:
     return float(sentence_bleu([ref_t], out_t, weights=weights, smoothing_function=_SMOOTH))
 
 
-async def rouge(ref: str, output: str, rouge_type: str) -> float:
-    """Async rouge computation with early validation."""
+def rouge2(ref: str, output: str, rouge_type: str) -> float:
+    """Synchronous rouge computation with early validation and thread safety."""
     if not ref or not output:
         return 0.0
-    scorer = await _get_rouge_scorer(rouge_type)
+    scorer = _get_rouge_scorer_thread_safe(rouge_type)
     return float(scorer.score(ref, output)[rouge_type].fmeasure)
 
 
@@ -148,15 +168,22 @@ def edit_sim(ref: str, output: str) -> float:
     return Levenshtein.normalized_similarity(ref, output) 
 
 
-def bertscore(ref: str, output: str, model: Optional[str] = None, device: str = "cpu") -> float:
-    """Optimized BERTScore with validation and caching."""
+def bertscore(ref: str, output: str, model: str, device: str = "cpu") -> float:
+    """Thread-safe BERTScore with proper locking and validation."""
     if not ref or not output:
         return 0.0
-    
-    model = model or "microsoft/deberta-xlarge-mnli"  # Default model
-    scorer = _get_bert_scorer(model, device)
-    P, R, F1 = scorer.score([output], [ref]) 
-    return float(F1.mean())
+
+    try:
+        scorer = _get_bert_scorer_thread_safe(model, device)
+        
+        # # Use the scorer in a thread-safe manner
+        # with _BERT_INIT_LOCK:  # Use the same lock for scoring to prevent conflicts
+        P, R, F1 = scorer.score([output], [ref])
+        return float(F1.mean())
+        
+    except Exception as e:
+        print(f"Error in BERTScore computation: {e}")
+        return 0.0
 
 
 def aggregate(weighted_scores: List[Tuple[float, float]]) -> float:
@@ -176,56 +203,56 @@ def aggregate(weighted_scores: List[Tuple[float, float]]) -> float:
 ROUGE_TYPES = {"rougeL", "rouge1", "rouge2"}
 EDIT_TYPES = {"edit", "edit_sim", "levenshtein"}
 
+def rouge(ref, out, rouge_type):
+    """Thread-safe ROUGE computation."""
+    if not ref or not out: 
+        return 0.0
+    scorer = _get_rouge_scorer_thread_safe(rouge_type)
+    scores = scorer.score(ref, out)
+    return float(scores[rouge_type].fmeasure)
+
 
 async def run_metrics(ref: str, output: str, metrics_cfg: List[Dict[str, Any]]) -> Tuple[float, Dict[str, float]]:
-    """Optimized metrics computation with async support and batching."""
+    """Synchronous metrics computation with thread-safe operations."""
     if not metrics_cfg:
         return 0.0, {}
     
     breakdown = {}
     weighted = []
     
-    # Group metrics by type for potential batching
-    rouge_metrics = []
-    other_metrics = []
-    
+    # Process all metrics synchronously with thread safety
     for m in metrics_cfg:
         metric_type = m["type"]
-        if metric_type in ROUGE_TYPES:
-            rouge_metrics.append(m)
-        else:
-            other_metrics.append(m)
-    
-    # Process ROUGE metrics
-    for m in rouge_metrics:
-        metric_type = m["type"]
-        w = float(m.get("weight", 1.0))
-        value = await rouge(ref, output, rouge_type=metric_type)
-        breakdown[metric_type] = value
-        value = max(0.0, min(1.0, value))
-        weighted.append((value, w))
-    
-    # Process other metrics
-    for m in other_metrics:
-        metric_type = m["type"]
         w = float(m.get("weight", 1.0))
         
-        if metric_type == "bleu":
-            value = bleu(ref, output)
-            breakdown["bleu"] = value
-        elif metric_type in EDIT_TYPES:
-            value = edit_sim(ref, output)
-            breakdown["edit_sim"] = value
-        elif metric_type == "bertscore":       
-            value = bertscore(ref, output, m.get("model"), m.get("device", "cpu"))
-            breakdown["bertscore"] = value
-        else:                        
+        try:
+            if metric_type in ROUGE_TYPES:
+                value = rouge(ref, output, rouge_type=metric_type)
+                breakdown[metric_type] = value
+            elif metric_type == "bleu":
+                value = bleu(ref, output)
+                breakdown["bleu"] = value
+            elif metric_type in EDIT_TYPES:
+                value = edit_sim(ref, output)
+                breakdown["edit_sim"] = value
+            elif metric_type == "bertscore":       
+                model = m.get("model", "microsoft/deberta-xlarge-mnli")
+                device = m.get("device", "cpu")
+                value = bertscore(ref, output, model, device)
+                breakdown["bertscore"] = value
+            else:                        
+                value = 0.0
+                breakdown[metric_type] = value
+                print(f"WARNING: Metric {metric_type} not supported for rewards.")
+            
+            value = max(0.0, min(1.0, float(value)))
+            weighted.append((value, w))
+            
+        except Exception as e:
+            print(f"Error computing {metric_type}: {e}")
             value = 0.0
             breakdown[metric_type] = value
-            print(f"WARNING: Metric {metric_type} not supported for rewards.")
-        
-        value = max(0.0, min(1.0, float(value)))
-        weighted.append((value, w))
+            weighted.append((value, w))
     
     return aggregate(weighted), breakdown
 
@@ -234,9 +261,7 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
     pred_belief, pred_resp, pred_memory = parse_text(generation)
     ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
 
-    print("\n========== [Generation] ==========")
-    print(generation)
-    print("=======================================\n")
+    # print(f"\n========== [Generation] ==========\n{generation}=======================================\n")
 
     if not ref_belief:
         print("[Warning] Ground truth belief is empty.")
@@ -271,3 +296,4 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
         "response": resp_score
     }
     return reward_dict
+
