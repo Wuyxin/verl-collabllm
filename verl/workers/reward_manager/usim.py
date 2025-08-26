@@ -56,7 +56,6 @@ class UsimRewardManager(AbstractRewardManager):
         prompt_ids = data.batch["prompts"]
         prompt_length = prompt_ids.shape[-1]
         valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(dim=-1)
-
         # # Weights and final score
         data_source = data.non_tensor_batch["data_source"]
         extra_info = data.non_tensor_batch["extra_info"]
@@ -110,7 +109,7 @@ class UsimRewardManager(AbstractRewardManager):
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         
         for i in range(len(data)):
-            reward_tensor[i, valid_response_length[0].item() - 1] = scores[i]
+            reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
 
         if return_dict:
             return {"reward_tensor": reward_tensor}
