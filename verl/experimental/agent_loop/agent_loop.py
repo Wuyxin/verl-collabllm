@@ -284,6 +284,12 @@ class RewardManagerWorker:
             **{k: np.array([v]) for k, v in kwargs.items()},
             "__num_turns__": np.array([output.num_turns]),
         }
+        extra_fields = {}
+        for key, val in output.extra_fields.items():
+            extra_fields[key] = np.array([val], dtype=object)
+
+        non_tensor_batch.update(extra_fields)
+
         data = DataProto(
             batch=batch,
             non_tensor_batch=non_tensor_batch,

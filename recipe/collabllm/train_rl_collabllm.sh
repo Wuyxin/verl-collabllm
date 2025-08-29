@@ -1,13 +1,9 @@
 set -x
 
-
-# +reward_model.reward_kwargs.metric_weights.accuracy=1 \
-# +reward_model.reward_kwargs.metric_weights.interactivity=1 \
-# +reward_model.reward_kwargs.metric_weights.token_amount=-0.0005 \
-
 PROJECT_DIR="$(pwd)"
 set -x
 
+export VLLM_USE_V1=1
 
 PROJECT_DIR="$(pwd)"
 CUDA_VISIBLE_DEVICES=0 python3 -m verl.trainer.main_ppo \
@@ -23,15 +19,15 @@ CUDA_VISIBLE_DEVICES=0 python3 -m verl.trainer.main_ppo \
     +reward_model.reward_kwargs.metric_weights.token_amount=-0.0005 \
     +reward_model.reward_kwargs.llm_judge_kwargs.model=claude-3-5-sonnet-latest \
     +reward_model.reward_kwargs.llm_judge_kwargs.temperature=0 \
-    data.train_batch_size=4 \
-    data.max_prompt_length=4096 \
-    data.max_response_length=512 \
+    data.train_batch_size=64 \
+    data.max_prompt_length=8192 \
+    data.max_response_length=1024 \
     data.filter_overlong_prompts=False \
     data.truncation='error' \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct\
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=4 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=5000 \
     actor_rollout_ref.actor.use_kl_loss=False \
@@ -41,15 +37,17 @@ CUDA_VISIBLE_DEVICES=0 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.rollout.name=sglang \
+    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
-    actor_rollout_ref.rollout.n=1 \
+    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.free_cache_engine=True \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console"]' \
     trainer.project_name='verlxcollabllm' \
-    trainer.experiment_name='collabllm' \
+    trainer.experiment_name='collabllm-qwen2.5-7b-agentloop' \
     trainer.nnodes=1 \
     trainer.n_gpus_per_node=1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
