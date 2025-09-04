@@ -258,47 +258,47 @@ async def run_metrics(ref: str, output: str, metrics_cfg: List[Dict[str, Any]]) 
 
 
 async def compute_reward(data_source, generation, ground_truth, response_metrics, belief_metrics={}, extra_info=None):
-    return {
-        "belief": 2 - len(generation) / 1000.0, 
-        "response": 2 - len(generation) / 1000.0
-    } # Dummy reward for testing
-    #   
-    # pred_belief, pred_resp, pred_memory = parse_text(generation)
-    # ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
+    # return {
+    #     "belief": 2 - len(generation) / 1000.0, 
+    #     "response": 2 - len(generation) / 1000.0
+    # } # Dummy reward for testing
+      
+    pred_belief, pred_resp, pred_memory = parse_text(generation)
+    ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
 
-    # print(f"\n========== [Generation] ==========\n{generation}=======================================\n")
+    print(f"\n========== [Generation] ==========\n{generation}=======================================\n")
 
-    # if not ref_belief:
-    #     print("[Warning] Ground truth belief is empty.")
-    # if not ref_resp:
-    #     print("[Warning] Ground truth response is empty.")
+    if not ref_belief:
+        print("[Warning] Ground truth belief is empty.")
+    if not ref_resp:
+        print("[Warning] Ground truth response is empty.")
 
-    # # Input validation logs
-    # if pred_belief:
-    #     # Belief reward
-    #     if belief_metrics:
-    #         belief_score, _ = await run_metrics( 
-    #             ref_belief, pred_belief, belief_metrics
-    #         )
-    #     else:
-    #         belief_score = 0.0
-    # else:
-    #     print("[Warning] Generation missing belief.")
-    #     belief_score = -1.0
+    # Input validation logs
+    if pred_belief:
+        # Belief reward
+        if belief_metrics:
+            belief_score, _ = await run_metrics( 
+                ref_belief, pred_belief, belief_metrics
+            )
+        else:
+            belief_score = 0.0
+    else:
+        print("[Warning] Generation missing belief.")
+        belief_score = -1.0
             
         
-    # if pred_resp:
-    #     # Response reward
-    #     resp_score, _ = await run_metrics( 
-    #         ref_resp, pred_resp, response_metrics
-    #     )
-    # else:
-    #     print("[Warning] Generation missing response.")
-    #     resp_score = -1.0
+    if pred_resp:
+        # Response reward
+        resp_score, _ = await run_metrics( 
+            ref_resp, pred_resp, response_metrics
+        )
+    else:
+        print("[Warning] Generation missing response.")
+        resp_score = -1.0
 
-    # reward_dict = {
-    #     "belief": belief_score, 
-    #     "response": resp_score
-    # }
-    # return reward_dict
+    reward_dict = {
+        "belief": belief_score, 
+        "response": resp_score
+    }
+    return reward_dict
 

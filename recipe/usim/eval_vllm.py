@@ -29,12 +29,12 @@ def build_prompts(tokenizer, msgs_batch, max_prompt_tokens):
     return prompts
 
 
-def make_llm(model, gpus, tp, dtype, max_model_len, gpu_mem_util, enable_lora):
+def make_llm(model, gpus, dtype, max_model_len, gpu_mem_util, enable_lora=False):
     if gpus:
         os.environ["CUDA_VISIBLE_DEVICES"] = gpus
-        tp = tp or len(gpus.split(","))
+        tp = len(gpus.split(","))
     else:
-        tp = tp or 1
+        tp = 1
 
     llm = LLM(
         model=model,
@@ -43,7 +43,7 @@ def make_llm(model, gpus, tp, dtype, max_model_len, gpu_mem_util, enable_lora):
         gpu_memory_utilization=gpu_mem_util,
         max_model_len=max_model_len,
         trust_remote_code=True,
-        enable_lora=enable_lora,        
+        enable_lora=enable_lora
     )
     return llm
 
@@ -118,10 +118,10 @@ def main():
     ap = argparse.ArgumentParser("Side-by-side outputs with vLLM")
     ap.add_argument("--test_parquet", type=str, default="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl/test.parquet",
                     help="Path to parquet (e.g., /dfs/project/kgrlm/common/llm_twin/data/reddit/rl/test.parquet)")
-    ap.add_argument("--num_examples", type=int, default=5,
+    ap.add_argument("--num_examples", type=int, default=50,
                     help="Show first N examples (set None to use all)")
 
-    ap.add_argument("--base_model", type=str, default="Qwen/Qwen2.5-14B-Instruct",ß
+    ap.add_argument("--base_model", type=str, default="Qwen/Qwen2.5-14B-Instruct",
                     help="HF id or path for base model")
     ap.add_argument("--sft_model", type=str, default=None,
                     help="Optional: SFT model path (merged weights)")
@@ -133,18 +133,17 @@ def main():
     ap.add_argument("--rl_lora_name", type=str, default="rl_adapter",
                     help="Logical name for the LoRA adapter in vLLM")
 
-    ap.add_argument("--gpus", type=str, default=None, help='e.g., "0,1" (sets CUDA_VISIBLE_DEVICES)')
-    ap.add_argument("--tp", type=int, default=None, help="tensor parallel size (defaults to len(gpus))")
+    ap.add_argument("--gpus", type=str, default="0,1,2,3", help='e.g., "0,1" (sets CUDA_VISIBLE_DEVICES)')
     ap.add_argument("--dtype", type=str, default="bfloat16", choices=["auto","float16","bfloat16"])
-    ap.add_argument("--max_model_len", type=int, default=16384)
+    ap.add_argument("--max_model_len", type=int, default=8192)
     ap.add_argument("--gpu_mem_util", type=float, default=0.90)
     ap.add_argument("--max_prompt_tokens", type=int, default=None, help="Optional pre-truncation of prompt tokens")
 
-    ap.add_argument("--max_new_tokens", type=int, default=512)
+    ap.add_argument("--max_new_tokens", type=int, default=1024)
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--top_p", type=float, default=1.0)
     ap.add_argument("--request_batch", type=int, default=64)
-    ap.add_argument("--out_dir", type=str, default="outputs_compare")
+    ap.add_argument("--out_dir", type=str, default="/dfs/project/kgrlm/common/llm_twin/outputs_compare")
     ap.add_argument("--prefix", type=str, default="reddit_rl_eval")
 
     args = ap.parse_args()
@@ -179,7 +178,7 @@ def main():
 
 
     print("[BASe] starting vLLM …")
-    base_llm = make_llm(args.base_model, args.gpus, args.tp, args.dtype, args.max_model_len, args.gpu_mem_util)
+    base_llm = make_llm(args.base_model, args.gpus, args.dtype, args.max_model_len, args.gpu_mem_util)
     base_out = generate_texts(base_llm,
                               prompts_by_model["base"],
                               args.max_new_tokens,
@@ -191,7 +190,7 @@ def main():
     sft_out = None
     if "sft" in prompts_by_model:
         print("[SFT] starting vLLM …")
-        sft_llm = make_llm(args.sft_model, args.gpus, args.tp, args.dtype, args.max_model_len, args.gpu_mem_util)
+        sft_llm = make_llm(args.sft_model, args.gpus, args.dtype, args.max_model_len, args.gpu_mem_util)
         sft_out = generate_texts(sft_llm,
                                  prompts_by_model["sft"],
                                  args.max_new_tokens,
@@ -202,7 +201,7 @@ def main():
     rl_out = None
     if args.rl_model_merged:
         print("[RL] starting vLLM …")
-        rl_llm = make_llm(args.rl_model_merged, args.gpus, args.tp, args.dtype, args.max_model_len, args.gpu_mem_util)
+        rl_llm = make_llm(args.rl_model_merged, args.gpus, args.dtype, args.max_model_len, args.gpu_mem_util)
         rl_out = generate_texts(rl_llm,
                                 prompts_by_model["rl"],
                                 args.max_new_tokens,
@@ -211,7 +210,7 @@ def main():
                                 args.request_batch)
         del rl_llm; gc.collect()
     elif args.rl_lora_adapter:
-        lora_llm = make_llm(args.base_model, args.gpus, args.tp, args.dtype, args.max_model_len,
+        lora_llm = make_llm(args.base_model, args.gpus, args.dtype, args.max_model_len,
                             args.gpu_mem_util, enable_lora=True)
         lora_req = LoRARequest(args.rl_lora_name, 1, args.rl_lora_adapter)
         rl_out = generate_texts(lora_llm,
