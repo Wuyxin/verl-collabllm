@@ -20,8 +20,14 @@ try:
 except Exception:
     APIConnectionError = APITimeoutError = RateLimitError = Exception
 
-from recipe.usim.metrics.llm_judge_similarity import compute_score
 
+import weakref
+import threading
+
+_GLOBAL_JUDGE_SEM = threading.Semaphore(int(os.getenv("JUDGE_CONCURRENCY", "16")))
+
+_CLIENTS_BY_LOOP = weakref.WeakKeyDictionary()
+_SEMS_BY_LOOP = weakref.WeakKeyDictionary()
 
 _SMOOTH = SmoothingFunction().method1
 
@@ -222,6 +228,97 @@ def rouge(ref, out, rouge_type):
     return float(scores[rouge_type].fmeasure)
 
 
+@lru_cache(maxsize=8)
+def _load_text_file(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def _get_async_client_for_loop() -> AsyncOpenAI:
+    loop = asyncio.get_running_loop()
+    client = _CLIENTS_BY_LOOP.get(loop)
+    if client is None:
+        client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        _CLIENTS_BY_LOOP[loop] = client
+    return client
+
+def _get_semaphore_for_loop() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = _SEMS_BY_LOOP.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(int(os.getenv("JUDGE_CONCURRENCY_PER_LOOP", "16")))
+        _SEMS_BY_LOOP[loop] = sem
+    return sem
+
+
+async def _call_judge_once(model, instructions, user_input, max_output_tokens):
+    client = _get_async_client_for_loop()
+    loop_sem = _get_semaphore_for_loop()
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _GLOBAL_JUDGE_SEM.acquire)
+    try:
+        async with loop_sem:
+            resp = await client.responses.create(
+                model=model,
+                instructions=instructions,
+                input=user_input,
+            )
+    finally:
+        _GLOBAL_JUDGE_SEM.release()
+    raw = (resp.output_text or "").strip()
+    data = json.loads(raw) 
+    score = float(data.get("score", 0.0))
+
+    #print(f"========={user_input, score}===========")
+    # clamp
+    if score < 0.0: score = 0.0
+    if score > 1.0: score = 1.0
+    return score
+
+
+async def _llm_similarity_score(ref_resp, pred_resp, post=None, model="gpt-5-nano", prompt_path=None, max_output_tokens=20,vmax_retries=4, base_backoff=0.5):
+    if not ref_resp or not pred_resp:
+        return 0.0
+
+    instructions = _load_text_file(prompt_path)
+    user_input = (
+        "POST:\n"
+        f"{post}\n\n"
+        "REFERENCE:\n"
+        f"{ref_resp}\n\n"
+        "RESPONSE:\n"
+        f"{pred_resp}\n\n"
+    )
+
+    print('[USER INPUT] ', user_input)
+
+    backoff = base_backoff
+    for attempt in range(max_retries + 1):
+        try:
+            return await _call_judge_once(
+                model=model,
+                instructions=instructions,
+                user_input=user_input,
+                max_output_tokens=max_output_tokens,
+            )
+        except (APIConnectionError, APITimeoutError) as e:
+            if attempt == max_retries:
+                print(f"[LLM-JUDGE ERROR] network/timeout after {attempt} retries: {e}")
+                return 0.0
+            await asyncio.sleep(backoff + random.random() * 0.2)
+            backoff = min(backoff * 2, 8.0)
+        except RateLimitError as e:
+            if attempt == max_retries:
+                print(f"[LLM-JUDGE ERROR] rate limit after {attempt} retries: {e}")
+                return 0.0
+            await asyncio.sleep(backoff + random.random() * 0.5)
+            backoff = min(backoff * 2, 10.0)
+        except Exception as e:
+            print(f"[LLM-JUDGE ERROR] create() failed: {type(e).__name__}: {e}")
+            return 0.0
+
+
 async def run_metrics(ref: str, output: str, metrics_cfg: List[Dict[str, Any]], post=None) -> Tuple[float, Dict[str, float]]:
     """Synchronous metrics computation with thread-safe operations."""
     if not metrics_cfg:
@@ -253,7 +350,15 @@ async def run_metrics(ref: str, output: str, metrics_cfg: List[Dict[str, Any]], 
             elif metric_type == "gpt":
                 judge_model = m.get("model", "gpt-5-nano")
                 prompt_path = m.get("prompt_path") 
-                # print("lllm value: ", value)
+                coro = _llm_similarity_score(
+                    ref_resp=ref,
+                    post=post,
+                    pred_resp=output,
+                    model=judge_model,
+                    prompt_path=prompt_path
+                )
+                value = await coro
+                #print("lllm value: ", value)
 
             else:                        
                 value = 0.0
@@ -279,52 +384,46 @@ async def compute_reward(data_source, generation, ground_truth, response_metrics
     #     "response": 2 - len(generation) / 1000.0
     # } # Dummy reward for testing
     # #   
+    #original_post = extra_info[""]
     pred_belief, pred_resp, pred_memory = parse_text(generation)
     ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
 
     post = extra_info.get("post")
 
-    print(f"""========== [Post] ==========\n{post}\n
-              ========== [Grountruth] ==========\n{ground_truth}\n
-              ========== [Generation] ==========\n{generation}\n=======================================\n""")
+    print(f"\n========== [post] ==========\n{post}=======================================\n")
+    print(f"\n========== [GT] ==========\n{ground_truth}=======================================\n")
 
     '''if not ref_belief:
         print("[Warning] Ground truth belief is empty.")'''
     if not ref_resp:
         print("[Warning] Ground truth response is empty.")
-        
-    # override
-    # print("[BELIFHDI METRUC] ", belief_metrics)
+    #print("[BELIFHDI METRUC] ", belief_metrics)
     # Input validation logs
-    # if pred_belief:
-    #     # Belief reward
-    #     if belief_metrics:
-    #         print("[Warning] belief metric is true.")
-    #         belief_score, _ = await run_metrics( 
-    #             ref_belief, pred_belief, belief_metrics
-    #         )
-    #     else:
-    #         belief_score = 0.0
-    # else:
-    #     print("[Warning] Generation missing belief.")
-    #     belief_score = -1.0   
+    if pred_belief:
+        # Belief reward
+        if belief_metrics:
+            print("[Warning] belief metric is true.")
+            belief_score, _ = await run_metrics( 
+                ref_belief, pred_belief, belief_metrics
+            )
+        else:
+            belief_score = 0.0
+    else:
+        print("[Warning] Generation missing belief.")
+        belief_score = -1.0
+            
         
     if pred_resp:
         # Response reward
-        resp_score = await compute_score(
-            data_source, pred_resp, ref_resp, extra_info, 
-            model="claude-3-5-sonnet-latest", max_tokens=512
+        resp_score, _ = await run_metrics( 
+            ref_resp, pred_resp, response_metrics, post=post
         )
-        # override
-        # resp_score, _ = await run_metrics( 
-        #     ref_resp, pred_resp, response_metrics, post=post
-        # )
     else:
         print("[Warning] Generation missing response.")
         resp_score = -1.0
 
     reward_dict = {
-        "belief": 0, 
+        "belief": belief_score, 
         "response": resp_score
     }
     return reward_dict

@@ -29,7 +29,7 @@ Your output:
 '''
 
 
-async def compute_score(data_source, messages, ground_truth, extra_info, **kwargs):
+async def compute_score(data_source, generation, ground_truth, extra_info, **kwargs):
     # Check if litellm is available, fallback to openai if not
     try:
         import litellm
@@ -41,14 +41,18 @@ async def compute_score(data_source, messages, ground_truth, extra_info, **kwarg
 
         use_litellm = False
 
-    # TODO: starting from here
     gd_first = random.choice([0, 1])
 
-    chat_history = parse_messages(messages, strip_sys_prompt=True)
+
+    post = [{"role": "Poster", "content": extra_info.get("post")}]
+    
+
+    conversation_gd = parse_messages(post + [{"role": "Anonymous User", "content": ground_truth}])
+    conversation_model = parse_messages(post + [{"role": "Anonymous User", "content": generation}])
+
     prompt = WIN_RATE_PROMPT.format(
-        single_turn_prompt=extra_info["interaction_kwargs"]["single_turn_prompt"],
-        ground_truth=ground_truth,
-        chat_history=chat_history,
+        conversation_a=conversation_gd if gd_first else conversation_model, 
+        conversation_b=conversation_model if gd_first else conversation_gd, 
     )
 
     if use_litellm:
@@ -76,11 +80,19 @@ async def compute_score(data_source, messages, ground_truth, extra_info, **kwarg
         )
 
     full_response = extract_json(full_response)
+    print(full_response)
 
     assert isinstance(full_response, dict), f"Expected a dict, got {type(full_response)}"
     assert {"decision", "thought"}.issubset(full_response.keys()), (
         f"Expected keys not found from {full_response.keys()}"
     )
+    decision = full_response["decision"].capitalize().strip()
 
-    decision = full_response.pop("decision")
-    return float(decision)
+    if decision == "N":
+        score = 0.5
+    elif (decision == "B" and gd_first) or (decision == "A" and not gd_first):
+        score = 1.
+    else:
+        score = 0.
+        
+    return score
