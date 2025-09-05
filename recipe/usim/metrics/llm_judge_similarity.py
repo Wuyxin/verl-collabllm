@@ -40,11 +40,13 @@ Then, compare the alignment between the target response and reference response.
 - If reference response has multiple points, judge by the central attitude/stance.
 
 ## Scoring criteria:
-- 1.0: Same stance and reaction; tone intensity similar; topic recognizable as the same.
-- 0.8: Same stance and reaction; tone intensity differs; topic aligned.
-- 0.5: Same stance but reaction category differs or is weak/unclear; topic aligned or loosely aligned.
-- 0.3: Related topic but stance or reaction ambiguous/misaligned.
-- 0.0: Opposite stance or clearly off-topic
+- Let S = stance alignment in [0,1]
+  - 1.0 if same stance; 0.5 if some overlap, 0.2 if unclear/ambiguous; 0.0 if opposite.
+- Let R = reaction/tone alignment in [0,1]
+  - 1.0 if same reaction category and similar intensity; 0.7 if same category but different intensity; 0.4 if different but compatible; 0.0 if clearly opposite
+- Let T = loose topic alignment in [0,1]
+  - 1.0 if clearly about the same situation/subject; 0.5 if loosely related; 0.0 if off-topic.
+Aggregate score = 0.35*S + 0.35*R + 0.3*T
 
 ## Output format (JSON):
 {{
@@ -89,10 +91,10 @@ async def compute_score(data_source, generation, ground_truth, extra_info, **kwa
                 .choices[0]
                 .message.content
             )
-        except litellm.exceptions.BadRequestError as e:
-            raise RuntimeError(f"LiteLLM BadRequestError: {e}") 
+        except Exception as e:
+            print(f"LiteLLM Error: {e}") 
+            return 0.0
 
-        print(full_response)
     else:
         client = openai.AsyncOpenAI()  # Assumes API key is set in environment
         try:
@@ -106,10 +108,10 @@ async def compute_score(data_source, generation, ground_truth, extra_info, **kwa
                 .choices[0]
                 .message.content
             )
-        except openai.error.OpenAIError as e:
-            raise RuntimeError(f"OpenAI API Error: {e}")
+        except Exception as e:
+            print(f"OpenAI API Error: {e}") 
+            return 0.0
             
-    print(full_response)
     full_response = extract_json(full_response)
 
     assert isinstance(full_response, dict), f"Expected a dict, got {type(full_response)}"

@@ -1,29 +1,12 @@
+import os
 import re
+import sys
+import asyncio
+import importlib.util
+import torch
+import litellm
 from typing import Dict, Any, Tuple, Optional, List, TypedDict
-from functools import lru_cache
-import asyncio, random
-import threading
-from threading import Lock
 
-from rapidfuzz.distance import Levenshtein
-from rouge_score import rouge_scorer
-import nltk
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from bert_score import score as bertscore_score
-from bert_score.scorer import BERTScorer
-import os, json
-from uuid import uuid4
-from openai import AsyncOpenAI
-try:
-    # new-style exceptions (names may vary by SDK version)
-    from openai import APIConnectionError, APITimeoutError, RateLimitError
-except Exception:
-    APIConnectionError = APITimeoutError = RateLimitError = Exception
-
-from recipe.usim.metrics.llm_judge_similarity import compute_score
-
-
-_SMOOTH = SmoothingFunction().method1
 
 # Compiled regex patterns (already optimized in original)
 BELIEF_OPEN  = re.compile(r"<belief>", re.I)
@@ -32,17 +15,6 @@ RESP_OPEN    = re.compile(r"<response>", re.I)
 RESP_CLOSE   = re.compile(r"</response>|<\\response>", re.I)
 MEM_OPEN     = re.compile(r"<memory>", re.I)
 MEM_CLOSE    = re.compile(r"</memory>|<\\memory>", re.I)
-
-# Thread-safe scorer caches with locks
-_ROUGE_SCORERS: Dict[str, rouge_scorer.RougeScorer] = {}
-_ROUGE_LOCK = Lock()
-
-_BERT_SCORERS: Dict[str, BERTScorer] = {}
-_BERT_LOCK = Lock()
-
-# Global lock for BERTScore initialization to prevent conflicts
-_BERT_INIT_LOCK = Lock()
-
 
 # Optimized parsing with early returns and reduced regex operations
 def parse_text(text: str) -> Tuple[str, str, str]:
@@ -100,232 +72,91 @@ def parse_text(text: str) -> Tuple[str, str, str]:
     return belief, response, memory
 
 
-def _get_rouge_scorer_thread_safe(rouge_type: str) -> rouge_scorer.RougeScorer:
-    """Thread-safe rouge scorer getter with proper locking."""
-    with _ROUGE_LOCK:
-        if rouge_type not in _ROUGE_SCORERS:
-            print(f"Creating new ROUGE scorer for type: {rouge_type}")
-            _ROUGE_SCORERS[rouge_type] = rouge_scorer.RougeScorer([rouge_type], use_stemmer=False)
-        return _ROUGE_SCORERS[rouge_type]
-
-
-def _get_bert_scorer_thread_safe(model_type: str, device: str = "cpu") -> BERTScorer:
-    """Thread-safe BERTScore scorer getter with proper locking."""
-    cache_key = f"{model_type}_{device}"
-    
-    with _BERT_LOCK:
-        if cache_key not in _BERT_SCORERS:
-            print(f"Creating new BERTScore scorer for model: {model_type}, device: {device}")
-            
-            # Use a separate initialization lock to prevent concurrent model loading
-            with _BERT_INIT_LOCK:
-                # Double-check pattern in case another thread created it while we were waiting
-                if cache_key not in _BERT_SCORERS:
-                    try:
-                        _BERT_SCORERS[cache_key] = BERTScorer(
-                            model_type=model_type,
-                            rescale_with_baseline=True,
-                            lang='en',
-                            device=device
-                        )
-                        print(f"Successfully created BERTScore scorer for {model_type}")
-                    except Exception as e:
-                        print(f"Error creating BERTScore scorer: {e}")
-                        raise
-        
-        return _BERT_SCORERS[cache_key]
-
-
-# Optimized BLEU with pre-computed weights
-_BLEU_WEIGHTS_CACHE = {}
-
-def bleu(ref: str, output: str) -> float:
-    """Optimized BLEU with cached weights and early validation."""
-    if not ref or not output:
-        return 0.0
-        
-    ref_t, out_t = ref.split(), output.split()
-    if not ref_t or not out_t:
-        return 0.0
-        
-    n = max(1, min(4, len(ref_t), len(out_t)))
-    
-    # Cache weights computation
-    if n not in _BLEU_WEIGHTS_CACHE:
-        if n < 4:
-            _BLEU_WEIGHTS_CACHE[n] = tuple((1.0/n if i < n else 0.0) for i in range(4))
-        else:
-            _BLEU_WEIGHTS_CACHE[n] = (0.25, 0.25, 0.25, 0.25)
-    
-    weights = _BLEU_WEIGHTS_CACHE[n]
-    return float(sentence_bleu([ref_t], out_t, weights=weights, smoothing_function=_SMOOTH))
-
-
-def rouge2(ref: str, output: str, rouge_type: str) -> float:
-    """Synchronous rouge computation with early validation and thread safety."""
-    if not ref or not output:
-        return 0.0
-    scorer = _get_rouge_scorer_thread_safe(rouge_type)
-    return float(scorer.score(ref, output)[rouge_type].fmeasure)
-
-
-def edit_sim(ref: str, output: str) -> float:
-    """Edit similarity with early validation."""
-    if not ref and not output:
-        return 1.0
-    if not ref or not output:
-        return 0.0
-    return Levenshtein.normalized_similarity(ref, output) 
-
-
-def bertscore(ref: str, output: str, model: str, device: str = "cpu") -> float:
-    """Thread-safe BERTScore with proper locking and validation."""
-    if not ref or not output:
-        return 0.0
-
-    try:
-        scorer = _get_bert_scorer_thread_safe(model, device)
-        
-        # # Use the scorer in a thread-safe manner
-        # with _BERT_INIT_LOCK:  # Use the same lock for scoring to prevent conflicts
-        P, R, F1 = scorer.score([output], [ref])
-        return float(F1.mean())
-        
-    except Exception as e:
-        print(f"Error in BERTScore computation: {e}")
-        return 0.0
-
-
-def aggregate(weighted_scores: List[Tuple[float, float]]) -> float:
-    """Optimized aggregation with single pass."""
-    if not weighted_scores:
-        return 0.0
-    
-    total_score = total_weight = 0.0
-    for score, weight in weighted_scores:
-        total_score += weight * score
-        total_weight += weight
-    
-    return total_score / total_weight if total_weight > 0 else 0.0
-
-
-# Pre-compile metric type sets for faster lookup
-ROUGE_TYPES = {"rougeL", "rouge1", "rouge2"}
-EDIT_TYPES = {"edit", "edit_sim", "levenshtein"}
-
-def rouge(ref, out, rouge_type):
-    """Thread-safe ROUGE computation."""
-    if not ref or not out: 
-        return 0.0
-    scorer = _get_rouge_scorer_thread_safe(rouge_type)
-    scores = scorer.score(ref, out)
-    return float(scores[rouge_type].fmeasure)
-
-
-async def run_metrics(ref: str, output: str, metrics_cfg: List[Dict[str, Any]], post=None) -> Tuple[float, Dict[str, float]]:
-    """Synchronous metrics computation with thread-safe operations."""
-    if not metrics_cfg:
-        return 0.0, {}
-    
-    breakdown = {}
-    weighted = []
-    
-    # Process all metrics synchronously with thread safety
-    for m in metrics_cfg:
-        metric_type = m["type"]
-        w = float(m.get("weight", 1.0))
-        
-        try:
-            if metric_type in ROUGE_TYPES:
-                value = rouge(ref, output, rouge_type=metric_type)
-                breakdown[metric_type] = value
-            elif metric_type == "bleu":
-                value = bleu(ref, output)
-                breakdown["bleu"] = value
-            elif metric_type in EDIT_TYPES:
-                value = edit_sim(ref, output)
-                breakdown["edit_sim"] = value
-            elif metric_type == "bertscore":       
-                model = m.get("model", "microsoft/deberta-xlarge-mnli")
-                device = m.get("device", "cpu")
-                value = bertscore(ref, output, model, device)
-                breakdown["bertscore"] = value
-            elif metric_type == "gpt":
-                judge_model = m.get("model", "gpt-5-nano")
-                prompt_path = m.get("prompt_path") 
-                # print("lllm value: ", value)
-
-            else:                        
-                value = 0.0
-                breakdown[metric_type] = value
-                print(f"WARNING: Metric {metric_type} not supported for rewards.")
-            
-            value = max(0.0, min(1.0, float(value)))
-            weighted.append((value, w))
-            
-        except Exception as e:
-            print(f"Error computing {metric_type}: {e}")
-            value = 0.0
-            breakdown[metric_type] = value
-            weighted.append((value, w))
-    
-    return aggregate(weighted), breakdown
-
-
-
-async def compute_reward(data_source, generation, ground_truth, response_metrics, belief_metrics={}, extra_info=None):
-    # return {
-    #     "belief": 2 - len(generation) / 1000.0, 
-    #     "response": 2 - len(generation) / 1000.0
-    # } # Dummy reward for testing
-    # #   
-    pred_belief, pred_resp, pred_memory = parse_text(generation)
-    ref_belief, ref_resp, ref_memory = parse_text(ground_truth)
-
-    post = extra_info.get("post")
-
-    print(f"""========== [Post] ==========\n{post}\n
-              ========== [Grountruth] ==========\n{ground_truth}\n
-              ========== [Generation] ==========\n{generation}\n=======================================\n""")
-
-    '''if not ref_belief:
-        print("[Warning] Ground truth belief is empty.")'''
-    if not ref_resp:
-        print("[Warning] Ground truth response is empty.")
-        
-    # override
-    # print("[BELIFHDI METRUC] ", belief_metrics)
-    # Input validation logs
-    # if pred_belief:
-    #     # Belief reward
-    #     if belief_metrics:
-    #         print("[Warning] belief metric is true.")
-    #         belief_score, _ = await run_metrics( 
-    #             ref_belief, pred_belief, belief_metrics
-    #         )
-    #     else:
-    #         belief_score = 0.0
-    # else:
-    #     print("[Warning] Generation missing belief.")
-    #     belief_score = -1.0   
-        
-    if pred_resp:
-        # Response reward
-        resp_score = await compute_score(
-            data_source, pred_resp, ref_resp, extra_info, 
-            model="claude-3-5-sonnet-latest", max_tokens=512
-        )
-        # override
-        # resp_score, _ = await run_metrics( 
-        #     ref_resp, pred_resp, response_metrics, post=post
-        # )
-    else:
-        print("[Warning] Generation missing response.")
-        resp_score = -1.0
+async def compute_reward(
+    data_source,
+    generation,
+    ground_truth,
+    response_metrics,
+    belief_metrics={},
+    extra_info=None,
+    num_retries: int = 6
+):
+    pred_belief, pred_resp, _ = parse_text(generation)
+    ref_belief, ref_resp, _ = parse_text(ground_truth)
+    post = extra_info.get("post") if extra_info else None
+    print(f"[Post] \n{post}\n[GT] \n{ref_resp}\n[Gen] \n{pred_resp}\n" + "-" * 50)
 
     reward_dict = {
-        "belief": 0, 
-        "response": resp_score
+        "belief": 0.0,
+        "response": -1.0,
     }
-    return reward_dict
 
+    async def try_compute(metric_name, metric_type, ref, pred, **kwargs):
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        metric_file_path = os.path.join(current_dir, f"metrics/{metric_name}.py")
+        if not os.path.exists(metric_file_path):
+            print(f"[Error] Metric file not found: {metric_file_path}")
+            return 0.0
+
+        spec = importlib.util.spec_from_file_location(f"{metric_type}_{metric_name}", metric_file_path)
+        if spec is None or spec.loader is None:
+            print(f"[Error] Could not load spec for {metric_type} metric '{metric_name}'.")
+            return 0.0
+
+        module = importlib.util.module_from_spec(spec)
+        try:
+            sys.modules[f"{metric_type}_{metric_name}"] = module
+            spec.loader.exec_module(module)
+        except Exception as e:
+            print(f"[Error] Failed to import {metric_type} metric '{metric_name}': {e}")
+            return 0.0
+
+        if not hasattr(module, "compute_score"):
+            print(f"[Error] 'compute_score' not found in {metric_file_path}")
+            return 0.0
+
+        compute_score_fn = module.compute_score
+        for attempt in range(num_retries):
+            try:
+                if asyncio.iscoroutinefunction(compute_score_fn):
+                    score = await compute_score_fn(
+                        data_source, pred, ref, extra_info, **kwargs
+                    )
+                else:
+                    score = compute_score_fn(
+                        data_source, pred, ref, extra_info, **kwargs
+                    )
+                return score
+            except Exception as e:
+                if attempt == num_retries - 1:
+                    print(f"[Error] Final failure computing '{metric_name}' ({metric_type}): {e}")
+                    return 0.0
+                else:
+                    print(f"[Retry {attempt+1}] Failed computing '{metric_name}' ({metric_type}): {e}")
+                    if isinstance(e, litellm.RateLimitError):
+                        await asyncio.sleep(1)
+
+    # Belief metrics
+    if pred_belief:
+        belief_scores = []
+        for metric, kwargs in belief_metrics.items():
+            score = await try_compute(metric, "belief", ref_belief, pred_belief, **kwargs)
+            belief_scores.append(score)
+        if belief_scores:
+            reward_dict["belief"] = sum(belief_scores)
+    else:
+        print("[Warning] Generation missing belief.")
+
+    # Response metrics
+    if pred_resp:
+        response_scores = []
+        for metric, kwargs in response_metrics.items():
+            score = await try_compute(metric, "response", ref_resp, pred_resp, **kwargs)
+            response_scores.append(score)
+        if response_scores:
+            reward_dict["response"] = sum(response_scores)
+    else:
+        print("[Warning] Generation missing response.")
+
+    return reward_dict
