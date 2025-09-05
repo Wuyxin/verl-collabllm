@@ -113,12 +113,7 @@ class CollabLLMRewardManager(AbstractRewardManager):
 
         # Apply metric-specific weights
         weighted_scores_by_metrics = {
-            metric: torch.clamp(
-                scores_by_metrics[metric] * self.metric_weights[metric] / num_repeat_rollouts,
-                min=-1 / num_repeat_rollouts,
-                max=1 / num_repeat_rollouts,
-            )
-            for metric in self.metrics
+            metric: scores_by_metrics[metric] * self.metric_weights[metric] for metric in self.metrics
         }
 
         # Compute mean of weighted scores for each metric
