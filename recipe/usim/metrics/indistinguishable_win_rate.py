@@ -56,29 +56,38 @@ async def compute_score(data_source, generation, ground_truth, extra_info, **kwa
     )
 
     if use_litellm:
-        full_response = (
-            (
-                await litellm.acompletion(
-                    messages=[{"role": "user", "content": prompt}],
-                    **kwargs,
+        try:
+            full_response = (
+                (
+                    await litellm.acompletion(
+                        messages=[{"role": "user", "content": prompt}],
+                        **kwargs
+                    )
                 )
+                .choices[0]
+                .message.content
             )
-            .choices[0]
-            .message.content
-        )
+        except Exception as e:
+            print(f"LiteLLM Error: {e}") 
+            return 0.0
+
     else:
         client = openai.AsyncOpenAI()  # Assumes API key is set in environment
-        full_response = (
-            (
-                await client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    **kwargs,
+        try:
+            full_response = (
+                (
+                    await client.chat.completions.create(
+                        messages=[{"role": "user", "content": prompt}],
+                        **kwargs
+                    )
                 )
+                .choices[0]
+                .message.content
             )
-            .choices[0]
-            .message.content
-        )
-
+        except Exception as e:
+            print(f"OpenAI API Error: {e}") 
+            return 0.0
+        
     full_response = extract_json(full_response)
     print(full_response)
 

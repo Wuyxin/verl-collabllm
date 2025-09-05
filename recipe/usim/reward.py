@@ -84,7 +84,6 @@ async def compute_reward(
     pred_belief, pred_resp, _ = parse_text(generation)
     ref_belief, ref_resp, _ = parse_text(ground_truth)
     post = extra_info.get("post") if extra_info else None
-    print(f"[Post] \n{post}\n[GT] \n{ref_resp}\n[Gen] \n{pred_resp}\n" + "-" * 50)
 
     reward_dict = {
         "belief": 0.0,
@@ -158,5 +157,7 @@ async def compute_reward(
             reward_dict["response"] = sum(response_scores)
     else:
         print("[Warning] Generation missing response.")
+
+    print(f"[Post] \n{post}\n[GT] \n{ref_resp}\n[Gen] \n{pred_resp}\n [Reward] \n{reward_dict}\n" + "-" * 50)
 
     return reward_dict
