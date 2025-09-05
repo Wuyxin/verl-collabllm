@@ -1,11 +1,14 @@
 import re
 import os
 import datasets
-from datasets import DatasetDict
+import json, glob
+from datasets import Dataset, DatasetDict
 
 from verl.utils.hdfs_io import copy, makedirs
 import argparse
 from pathlib import Path
+from collections import Counter
+from datasets import Features, Value
 
 '''
     Data preprocessing
@@ -60,20 +63,94 @@ def add_missing_closing_tags(s: str) -> str:
 # WARNING: Make sure to change prompt template if doing response_only
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--local_dir', default='/lfs/ampere4/0/echoi1/digitial-human-lm/data/reddit')
-    parser.add_argument('--hf_repo', default='snap-stanford/synthetic_subreddit')
+    parser.add_argument('--jsonl_path', type=str, default=None)
+    parser.add_argument('--local_dir', default='/dfs/project/kgrlm/common/llm_twin/data/reddit/rl_real_reddit_filtered')
+    parser.add_argument('--hf_repo', default='snap-stanford/filtered_subreddit_users')
     parser.add_argument('--hdfs_dir', default=None)
     parser.add_argument('--data_source', default='user-sim/generation')
-    parser.add_argument('--prompt_template', default='recipe/usim/character_template.txt')
+    #parser.add_argument('--prompt_template', default='recipe/usim/character_template.txt')
     parser.add_argument('--response_only', action='store_true', default=False)
-
+    parser.add_argument('--persona', action='store_true', default=False)  # add the persona
+    parser.add_argument('--past_comments', action='store_true', default=False)
+    
     args = parser.parse_args()
+    # If persona is true: character_template.txt
+    # If past_comments is true: character_template_past_comments.txt
+    # If neither persona and past_comments is true: character_template_bare.txt
+    if args.persona:
+        prompt_template_path = "./recipe/usim/character_templates/character_template.txt"
+    elif args.past_comments:
+        prompt_template_path = "./recipe/usim/character_templates/character_template_past_comments.txt"
+    else:
+        prompt_template_path = "./recipe/usim/character_templates/character_template_bare.txt"
 
     # CHANGE ARGS
     data_source = args.data_source 
 
-    raw = datasets.load_dataset(args.hf_repo, 'default')     
-    train_val = raw['train'].train_test_split(
+    if args.jsonl_path:
+        paths = sum((glob.glob(p.strip()) for p in args.jsonl_path.split(',')), [])
+        def gen(paths):
+            for p in paths:
+                with open(p, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        ex = json.loads(line)
+
+                        # keep only what you actually read later
+                        md = ex.get("metadata") or {}
+                        ex["metadata"] = {
+                            "comment_author": md.get("comment_author"),
+                            "post_author": md.get("post_author"),
+                        }
+                        yield ex
+
+        raw_train = Dataset.from_generator(
+            gen, gen_kwargs={"paths": paths},
+            cache_dir=os.path.join(args.local_dir, "hf-cache")  # isolates cache
+        )
+        raw = DatasetDict({"train": raw_train})
+        print("USING JSONL PATH")
+    else:
+        raw = datasets.load_dataset(args.hf_repo, 'default')
+
+    
+    print("Number of rows before filtering ", raw.num_rows)
+   
+
+    MIN_ROWS = 50  # adjust if needed
+
+    def normalize_author(md):
+        a = (md or {}).get("comment_author")
+        if not isinstance(a, str):
+            return None
+        a = a.strip()
+        # exclude "[deleted]" (case-insensitive)
+        if a.lower() == "[deleted]":
+            return None
+        return a
+
+    # 1) Count per-author rows on the full train set, ignoring "[deleted]"
+    author_list = [normalize_author(md) for md in raw["train"]["metadata"]]
+    author_list = [a for a in author_list if a is not None]
+    counts = Counter(author_list)
+    print("total author list length ", len(counts))
+
+    # 2) Filter: drop "[deleted]" authors and keep only authors with >= MIN_ROWS
+    def keep_batch(batch):
+        keep = []
+        for md in batch["metadata"]:
+            a = normalize_author(md)
+            keep.append(a is not None and counts.get(a, 0) >= MIN_ROWS)
+        return keep
+
+    filtered_train = raw["train"].filter(
+        keep_batch, batched=True, num_proc=os.cpu_count() or 1
+    )
+    print("Number of rows after filtering ", filtered_train.num_rows)
+
+    train_val = filtered_train.train_test_split(
         test_size=0.10, 
         seed=42, 
         shuffle=True,           
@@ -83,7 +160,7 @@ if __name__ == '__main__':
         'test': train_val['test'],
     })
 
-    template_path = Path(args.prompt_template)
+    template_path = Path(prompt_template_path)
     raw_template = template_path.read_text(encoding="utf-8")
 
     '''In the make_map_fn, each data field should consist of the following 5 fields:
@@ -97,22 +174,28 @@ if __name__ == '__main__':
 
     def make_map_fn(split):
         def process_fn(example, idx):
-            post = example.pop("post")
-            post = fix_tags(post)
-            
-            response = example.pop("response")
-            if args.response_only:
+            post = example.pop("prompt")[0]["content"]
+            #post = fix_tags(post)
+
+            comment_history = ""
+            for i, comment in enumerate(example["metadata"]["user_history"]["comments"]):
+                comment_history += f"Comment {i+1} in subreddit r/{comment['subreddit']}: "
+                comment_history += f"{comment["content"]} \n"
+
+            response = example.pop("completion")
+            '''if args.response_only:
                 response = fix_tags(response)
                 response = add_missing_closing_tags(response)
                 response = extract_response_block(response)  # if response is true, only take response
             else:
                 response = fix_tags(response)
-                response = add_missing_closing_tags(response)
+                response = add_missing_closing_tags(response)'''
 
-            user_prompt = post
+            user_prompt = "From subreddit " + example["conv_id"] + ": " + post
             values = {
-                "name": example["character"]["name"],
-                "description": example["character"]["description"],
+                "name": example["metadata"]["comment_author"],
+                "description": example["user_persona"],
+                "comment_history": comment_history,
                 "platform": "Reddit",
                 "memory" : None
             }
@@ -128,7 +211,7 @@ if __name__ == '__main__':
                     },
                     {
                         "role": "user",
-                        "name": "author of the post",
+                        "name": example["metadata"]["post_author"],
                         "content": user_prompt,
                     },
                 ],
@@ -137,9 +220,10 @@ if __name__ == '__main__':
                 "extra_info": {
                     "split": split,
                     "index": idx,
-                    "name": example["character"]["name"],
-                    "description": example["character"]["description"],
-                    "media_source": example["character"]["media_source"]
+                    "name": example["metadata"]["comment_author"],
+                    "description": example["user_persona"],
+                    "post": post
+                    #"media_source": example["character"]["media_source"]
                 },
             }
             return data
