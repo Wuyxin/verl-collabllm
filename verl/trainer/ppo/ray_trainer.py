@@ -62,6 +62,10 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
+from huggingface_hub import HfApi, create_repo, upload_folder, upload_file
+
+
+
 WorkerType = type[Worker]
 
 
@@ -384,6 +388,7 @@ class RayPPOTrainer:
 
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
+        self.hf_hub_cfg = self.config.trainer.get("hf_hub", None)
 
     def _validate_config(self):
         config = self.config
@@ -883,6 +888,51 @@ class RayPPOTrainer:
                 worker_group=self.actor_rollout_wg,
             )
 
+    def _push_to_hub(self, local_global_step_folder: str) -> None:
+        # Upload exactly what the trainer just saved, unfiltered, i.e. the whole 'global_step_{step}/' directory
+        # and the 'latest_checkpointed_iteration.txt' pointer
+
+        cfg = getattr(self, "hf_hub_cfg", None)
+        if not cfg or not cfg.get("enable", False):
+            return
+
+        repo_id = cfg["repo_id"]
+        branch = cfg.get("branch", "main")
+        private = cfg.get("private", True)
+        token = cfg.get("token") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+
+        print('==================== PUSH TO HUB =================')
+        print("CFG FOR PUSH TO HUB ", cfg)
+
+        path_in_repo = cfg.get("path_in_repo_template", "checkpoints/global_step_{step}") \
+                        .format(step=self.global_steps).strip("/")
+
+        api = HfApi(token=token)
+        create_repo(repo_id, repo_type="model", private=private, exist_ok=True, token=token)
+
+        upload_folder(
+            repo_id=repo_id,
+            repo_type="model",
+            folder_path=local_global_step_folder,
+            path_in_repo=path_in_repo,
+            commit_message=f"Add checkpoint for global_step {self.global_steps}",
+            revision=branch,
+            token=token,
+        )
+
+        latest_ptr = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
+        if os.path.exists(latest_ptr):
+            upload_file(
+                repo_id=repo_id,
+                repo_type="model",
+                path_or_fileobj=latest_ptr,
+                path_in_repo="latest_checkpointed_iteration.txt",  # keep at repo root
+                commit_message=f"Update latest pointer -> {self.global_steps}",
+                revision=branch,
+                token=token,
+            )
+
+
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
 
@@ -940,6 +990,8 @@ class RayPPOTrainer:
         )
         with open(local_latest_checkpointed_iteration, "w") as f:
             f.write(str(self.global_steps))
+        
+        self._push_to_hub(local_global_step_folder)
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":

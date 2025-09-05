@@ -97,8 +97,14 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=5 \
     trainer.default_hdfs_dir=null \
     trainer.val_before_train=False \
-    actor_rollout_ref.model.target_modules=all-linear \
+    +trainer.hf_hub.enable=True \
+    +trainer.hf_hub.repo_id="snap-stanford/grpo_model" \
+    +trainer.hf_hub.private=True \
+    +trainer.hf_hub.branch="main" \
+    +trainer.hf_hub.token="" \
     trainer.total_epochs=30 $@
+
+    # either set HUGGINGFACE_HUB_TOKEN in env or do trainer.hf_hub.token=
 
     # actor_rollout_ref.model.lora_rank=16 \
     # actor_rollout_ref.model.lora_alpha=16 \
