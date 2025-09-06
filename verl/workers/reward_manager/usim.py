@@ -39,10 +39,8 @@ class UsimRewardManager(AbstractRewardManager):
         self.compute_score = compute_score or default_compute_score
 
         self.split = 'train' if self.num_examine == 0 else 'val'
+        print("*"*100, self.split)
 
-        print('response_metrics', response_metrics)
-        print('belief_metrics', belief_metrics)
-        print('metric_weights', metric_weights)
         if self.split == 'train':
             self.response_metrics = response_metrics
             self.belief_metrics = belief_metrics
@@ -53,7 +51,6 @@ class UsimRewardManager(AbstractRewardManager):
             self.metric_weights = {f'response_{k}': 1.0 for k in self.response_metrics.keys()}
 
         self.metrics = list(self.metric_weights.keys())
-
         self.reward_fn_key = reward_fn_key
     
     def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
