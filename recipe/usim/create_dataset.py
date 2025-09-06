@@ -188,7 +188,7 @@ if __name__ == '__main__':
             comment_history = ""
             for i, comment in enumerate(example["metadata"]["user_history"]["comments"]):
                 comment_history += f"Comment {i+1} in subreddit r/{comment['subreddit']}: "
-                comment_history += f"{comment["content"]} \n"
+                comment_history += f"{comment['content']} \n"
 
             response = example.pop("completion")
             '''if args.response_only:

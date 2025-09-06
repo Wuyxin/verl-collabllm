@@ -10,14 +10,14 @@ WORKING_DIR=/dfs/project/kgrlm/common/llm_twin
 export WANDB_ENTITY=dsp-team
 VERL_PATH="./"
 
-EXP_NAME=qwen2_5_14b_new_judge_bs32_n2
+EXP_NAME=qwen2_5_72b_bs64_n2
 VERL_PATH="../verl"
 DATA_PATH=$WORKING_DIR/data/reddit/persona
 OUTPUT_DIR=$WORKING_DIR/outputs/$EXP_NAME
 CACHE_DIR=$WORKING_DIR/verl_cache
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export NUM_GPUS=8
+# export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export NUM_GPUS=16
 
 export NEW_HF_CACHE=$WORKING_DIR/hf-cache/$USER
 export HF_HOME="$NEW_HF_CACHE"
@@ -31,7 +31,7 @@ export VERL_CACHE_DIR="$NEW_HF_CACHE/verl-cache"
 BATCH_SIZE=64
 MICRO_BATCH_SIZE=1
 
-MODEL=Qwen/Qwen2.5-14B-Instruct
+MODEL=Qwen/Qwen2.5-72B-Instruct
 huggingface-cli download $MODEL
 
 python3 -m verl.trainer.main_ppo \
@@ -83,8 +83,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$MICRO_BATCH_SIZE \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.n=2 \
-    actor_rollout_ref.rollout.temperature=0.8 \
-    actor_rollout_ref.rollout.val_kwargs.temperature=0.8 \
+    actor_rollout_ref.rollout.temperature=0.9 \
+    actor_rollout_ref.rollout.val_kwargs.temperature=0.9 \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
     actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$NUM_GPUS \
@@ -98,7 +98,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name="$EXP_NAME" \
     trainer.default_local_dir="$OUTPUT_DIR" \
     trainer.nnodes=1 \
-    trainer.save_freq=100 \
+    trainer.save_freq=50 \
     trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
     trainer.val_before_train=True \
