@@ -184,8 +184,8 @@ class RLHFDataset(Dataset):
                         return len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
 
             # DEBUG: take the first 1000 of the trainset
-            print("************* DEBUG (verl/verl/utils/dataset/rl_dataset.py) ***************")
-            dataframe = dataframe.select(range(min(1000, len(dataframe))))
+            # print("************* DEBUG (verl/verl/utils/dataset/rl_dataset.py) ***************")
+            # dataframe = dataframe.select(range(min(1000, len(dataframe))))
 
             dataframe = dataframe.filter(
                 lambda doc: doc2len(doc) <= self.max_prompt_length,
