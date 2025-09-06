@@ -3,9 +3,13 @@ import re
 import sys
 import asyncio
 import importlib.util
+import threading
 import torch
 import litellm
 from typing import Dict, Any, Tuple, Optional, List, TypedDict
+
+
+METRIC_IMPORT_LOCK = threading.Lock()
 
 
 # Compiled regex patterns (already optimized in original)
@@ -85,11 +89,6 @@ async def compute_reward(
     ref_belief, ref_resp, _ = parse_text(ground_truth)
     post = extra_info.get("post") if extra_info else None
 
-    reward_dict = {
-        "belief": 0.0,
-        "response": -1.0,
-    }
-
     async def try_compute(metric_name, metric_type, ref, pred, **kwargs):
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -99,21 +98,22 @@ async def compute_reward(
             return 0.0
 
         module_name = f"{metric_type}_{metric_name}"
-        if module_name in sys.modules:
-            module = sys.modules[module_name]
-        else:
-            spec = importlib.util.spec_from_file_location(module_name, metric_file_path)
-            if spec is None or spec.loader is None:
-                print(f"[Error] Could not load spec for {metric_type} metric '{metric_name}'.")
-                return 0.0
+        with METRIC_IMPORT_LOCK:
+            if module_name in sys.modules:
+                module = sys.modules[module_name]
+            else:
+                spec = importlib.util.spec_from_file_location(module_name, metric_file_path)
+                if spec is None or spec.loader is None:
+                    print(f"[Error] Could not load spec for {metric_type} metric '{metric_name}'.")
+                    return 0.0
 
-            module = importlib.util.module_from_spec(spec)
-            try:
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
-            except Exception as e:
-                print(f"[Error] Failed to import {metric_type} metric '{metric_name}': {e}")
-                return 0.0
+                module = importlib.util.module_from_spec(spec)
+                try:
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+                except Exception as e:
+                    print(f"[Error] Failed to import {metric_type} metric '{metric_name}': {e}")
+                    return 0.0
 
         if not hasattr(module, "compute_score"):
             print(f"[Error] 'compute_score' not found in {metric_file_path}")
@@ -140,12 +140,15 @@ async def compute_reward(
                     if isinstance(e, litellm.RateLimitError):
                         await asyncio.sleep(1)
 
+    reward_dict = {}
     # Belief metrics
     if pred_belief:
         for metric, kwargs in belief_metrics.items():
             score = await try_compute(metric, "belief", ref_belief, pred_belief, **kwargs)
             reward_dict[f"belief_{metric}"] = score
     else:
+        for metric, kwargs in belief_metrics.items():
+            reward_dict[f"belief_{metric}"] = -1.0
         print("[Warning] Generation missing belief.")
 
     # Response metrics
@@ -154,6 +157,8 @@ async def compute_reward(
             score = await try_compute(metric, "response", ref_resp, pred_resp, **kwargs)
             reward_dict[f"response_{metric}"] = score
     else:
+        for metric, kwargs in response_metrics.items():
+            reward_dict[f"response_{metric}"] = -1.0
         print("[Warning] Generation missing response.")
 
     print(f"[Post] \n{post}\n[GT] \n{ref_resp}\n[Gen] \n{pred_resp}\n [Reward] \n{reward_dict}\n" + "-" * 50)

@@ -90,7 +90,6 @@ async def compute_score(data_source, generation, ground_truth, extra_info, **kwa
             return 0.0
         
     full_response = extract_json(full_response)
-    print(full_response)
 
     assert isinstance(full_response, dict), f"Expected a dict, got {type(full_response)}"
     assert {"decision", "thought"}.issubset(full_response.keys()), (
@@ -105,4 +104,6 @@ async def compute_score(data_source, generation, ground_truth, extra_info, **kwa
     else:
         score = 0.
         
+    full_response.update({'score': score})
+    print(full_response)
     return score
