@@ -18,6 +18,14 @@ from datasets import Features, Value
     Remove columns that we don't use (metadata etc.)
 '''
 
+def write_fraction(ds, out_path, frac=0.02, seed=42):
+    n = len(ds)
+    k = max(1, int(round(n * frac)))
+    sampled = ds.shuffle(seed=seed).select(range(k))
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    sampled.to_parquet(out_path)
+    print(f"Wrote {len(sampled)} rows ({len(sampled)/n:.2%}) to {out_path}")
+
 def extract_response_block(text):
     m = re.search(r'<response>\s*(.*?)\s*</response>', text,flags=re.DOTALL)
     return m.group(1) if m else None
@@ -243,6 +251,9 @@ if __name__ == '__main__':
     os.makedirs(args.local_dir, exist_ok=True)
     train_dataset.to_parquet(os.path.join(local_dir, 'train.parquet'))
     test_dataset.to_parquet(os.path.join(local_dir, 'test.parquet'))
+
+    test_2p_path = os.path.join(local_dir, 'test_2p.parquet')
+    write_fraction(test_dataset, test_2p_path, frac=0.02, seed=42)
 
     if hdfs_dir:
         makedirs(hdfs_dir)
