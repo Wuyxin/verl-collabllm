@@ -28,7 +28,7 @@ def parse_messages(messages, strip_sys_prompt=True):
     if strip_sys_prompt:
         messages = strip_system_prompt(messages)
 
-    chat = "\n".join(f"**{m.role.capitalize()}**: {m.content}" for m in messages)
+    chat = "\n".join(f"**{m['role'].capitalize()}**: {m['content']}" for m in messages)
 
     return chat
 
@@ -41,7 +41,7 @@ def strip_system_prompt(messages):
             Example: messages = [{'role': 'user', 'content': 'Hello!'},
                                  {'role': 'assistant', 'content': 'Hi!'}, ...]
     """
-    return [msg for msg in messages if msg.role != "system"]
+    return [msg for msg in messages if msg['role'] != "system"]
 
 
 def extract_json(s):

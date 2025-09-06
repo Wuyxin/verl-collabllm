@@ -1,4 +1,5 @@
 from recipe.usim.utils import extract_json, parse_messages
+import random
 
 WIN_RATE_PROMPT = '''You are a helpful and meticulous judge. \
 You will be given two conversations, each one of which is a session of an anonymous user with a real user. \

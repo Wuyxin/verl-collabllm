@@ -98,18 +98,22 @@ async def compute_reward(
             print(f"[Error] Metric file not found: {metric_file_path}")
             return 0.0
 
-        spec = importlib.util.spec_from_file_location(f"{metric_type}_{metric_name}", metric_file_path)
-        if spec is None or spec.loader is None:
-            print(f"[Error] Could not load spec for {metric_type} metric '{metric_name}'.")
-            return 0.0
+        module_name = f"{metric_type}_{metric_name}"
+        if module_name in sys.modules:
+            module = sys.modules[module_name]
+        else:
+            spec = importlib.util.spec_from_file_location(module_name, metric_file_path)
+            if spec is None or spec.loader is None:
+                print(f"[Error] Could not load spec for {metric_type} metric '{metric_name}'.")
+                return 0.0
 
-        module = importlib.util.module_from_spec(spec)
-        try:
-            sys.modules[f"{metric_type}_{metric_name}"] = module
-            spec.loader.exec_module(module)
-        except Exception as e:
-            print(f"[Error] Failed to import {metric_type} metric '{metric_name}': {e}")
-            return 0.0
+            module = importlib.util.module_from_spec(spec)
+            try:
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+            except Exception as e:
+                print(f"[Error] Failed to import {metric_type} metric '{metric_name}': {e}")
+                return 0.0
 
         if not hasattr(module, "compute_score"):
             print(f"[Error] 'compute_score' not found in {metric_file_path}")
@@ -138,23 +142,17 @@ async def compute_reward(
 
     # Belief metrics
     if pred_belief:
-        belief_scores = []
         for metric, kwargs in belief_metrics.items():
             score = await try_compute(metric, "belief", ref_belief, pred_belief, **kwargs)
-            belief_scores.append(score)
-        if belief_scores:
-            reward_dict["belief"] = sum(belief_scores)
+            reward_dict[f"belief_{metric}"] = score
     else:
         print("[Warning] Generation missing belief.")
 
     # Response metrics
     if pred_resp:
-        response_scores = []
         for metric, kwargs in response_metrics.items():
             score = await try_compute(metric, "response", ref_resp, pred_resp, **kwargs)
-            response_scores.append(score)
-        if response_scores:
-            reward_dict["response"] = sum(response_scores)
+            reward_dict[f"response_{metric}"] = score
     else:
         print("[Warning] Generation missing response.")
 

@@ -28,18 +28,30 @@ class UsimRewardManager(AbstractRewardManager):
         tokenizer: PreTrainedTokenizer,
         num_examine: int,
         metric_weights: dict,
-        response_metrics: dict, 
         belief_metrics: dict,
+        response_metrics: dict, 
+        val_response_metrics: dict = None,
         reward_fn_key: str = "data_source",
         compute_score: Optional[Callable] = None,
     ) -> None:
         self.tokenizer = tokenizer
-        self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
+        self.num_examine = num_examine  
         self.compute_score = compute_score or default_compute_score
 
-        self.metric_weights = metric_weights
-        self.response_metrics = response_metrics
-        self.belief_metrics = belief_metrics
+        self.split = 'train' if self.num_examine == 0 else 'val'
+
+        print('response_metrics', response_metrics)
+        print('belief_metrics', belief_metrics)
+        print('metric_weights', metric_weights)
+        if self.split == 'train':
+            self.response_metrics = response_metrics
+            self.belief_metrics = belief_metrics
+            self.metric_weights = metric_weights
+        else:
+            self.belief_metrics = {}
+            self.response_metrics = val_response_metrics if val_response_metrics else response_metrics
+            self.metric_weights = {f'response_{k}': 1.0 for k in self.response_metrics.keys()}
+
         self.metrics = list(self.metric_weights.keys())
 
         self.reward_fn_key = reward_fn_key
@@ -81,6 +93,7 @@ class UsimRewardManager(AbstractRewardManager):
         score_dicts = await asyncio.gather(*tasks)
 
         # Aggregate scores for each metric across repeated rollouts
+        print(self.metrics)
         scores_by_metrics = {
             metric: torch.tensor(
                 [score_dict[metric] for score_dict in score_dicts]
@@ -98,8 +111,8 @@ class UsimRewardManager(AbstractRewardManager):
             k: v
             for metric in self.metrics
             for k, v in {
-                f"customized_score/{metric}": weighted_scores_by_metrics[metric].mean(dim=0).item(),
-                f"customized_score/{metric}_std": weighted_scores_by_metrics[metric].std(dim=0).item()
+                f"customized_score/{self.split}/{metric}": weighted_scores_by_metrics[metric].mean(dim=0).item(),
+                f"customized_score/{self.split}/{metric}_std": weighted_scores_by_metrics[metric].std(dim=0).item()
             }.items()
         }
 

@@ -27,11 +27,13 @@ export XDG_CACHE_HOME="$NEW_HF_CACHE"
 export VLLM_DOWNLOAD_DIR="$NEW_HF_CACHE/hub"
 export VERL_CACHE_DIR="$NEW_HF_CACHE/verl-cache"
 
-MODEL="/dfs/project/kgrlm/common/llm_twin/models/Qwen2.5-14B-Instruct"
-# MODEL="Qwen/Qwen2.5-0.5B-Instruct"
 
 BATCH_SIZE=64
 MICRO_BATCH_SIZE=1
+MODEL="/dfs/project/kgrlm/common/llm_twin/models/Qwen2.5-14B-Instruct"
+
+# UNCOMMENT TO DEBUG
+# MODEL="Qwen/Qwen2.5-0.5B-Instruct"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -40,9 +42,11 @@ python3 -m verl.trainer.main_ppo \
     reward_model.reward_manager=usim \
     custom_reward_function.path="$VERL_PATH/recipe/usim/reward.py" \
     custom_reward_function.name="compute_reward" \
-    '+reward_model.reward_kwargs.metric_weights={belief: 0, response: 1.0}' \
     '+reward_model.reward_kwargs.belief_metrics={}' \
-    '+reward_model.reward_kwargs.response_metrics={llm_judge_similarity: {model: claude-3-5-sonnet-latest, max_tokens: 512}}' \
+    '+reward_model.reward_kwargs.metric_weights.bert_score=1.0' \
+    '+reward_model.reward_kwargs.response_metrics.bert_score={}' \
+    '+reward_model.reward_kwargs.val_response_metrics.bleu={}' \
+    '+reward_model.reward_kwargs.val_response_metrics.bert_score={model: microsoft/deberta-xlarge-mnli}' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test_2p.parquet \
     +data.cache_dir=$CACHE_DIR \
@@ -96,9 +100,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=100 \
     trainer.test_freq=5 \
     trainer.default_hdfs_dir=null \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
+    trainer.log_val_generations=True \
     actor_rollout_ref.model.target_modules=all-linear \
     trainer.total_epochs=30 $@
 
-    # actor_rollout_ref.model.lora_rank=16 \
-    # actor_rollout_ref.model.lora_alpha=16 \
+    # '+reward_model.reward_kwargs.val_response_metrics.indistinguishable_win_rate={model: claude-3-5-sonnet-latest, max_tokens: 512}' \
+    # '+reward_model.reward_kwargs.metric_weights.response_llm_judge_similarity=1.0' \
+    # '+reward_model.reward_kwargs.response_metrics.llm_judge_similarity={model: claude-3-5-sonnet-latest, max_tokens: 512}' \
+# actor_rollout_ref.model.lora_rank=16 \
+# actor_rollout_ref.model.lora_alpha=16 \
