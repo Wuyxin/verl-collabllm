@@ -43,11 +43,11 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.name="compute_reward" \
     '+reward_model.reward_kwargs.belief_metrics={}' \
     '+reward_model.reward_kwargs.metric_weights.response_llm_judge_similarity=1.0' \
-    '+reward_model.reward_kwargs.response_metrics.llm_judge_similarity={model: claude-3-5-sonnet-latest, max_tokens: 1024}' \
+    '+reward_model.reward_kwargs.response_metrics.llm_judge_similarity={model: claude-3-5-sonnet-latest, max_tokens: 1024, temperature: 0}' \
     '+reward_model.reward_kwargs.val_response_metrics.bleu={}' \
     '+reward_model.reward_kwargs.val_response_metrics.bert_score={model: microsoft/deberta-xlarge-mnli}' \
-    '+reward_model.reward_kwargs.val_response_metrics.llm_judge_similarity={model: claude-3-5-sonnet-latest, max_tokens: 1024}' \
-    '+reward_model.reward_kwargs.val_response_metrics.indistinguishable_win_rate={model: claude-3-5-sonnet-latest, max_tokens: 1024}' \
+    '+reward_model.reward_kwargs.val_response_metrics.llm_judge_similarity={model: claude-3-5-sonnet-latest, max_tokens: 1024, temperature: 0}' \
+    '+reward_model.reward_kwargs.val_response_metrics.indistinguishable_win_rate={model: claude-3-5-sonnet-latest, max_tokens: 1024, temperature: 0}' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test_2p.parquet \
     +data.cache_dir=$CACHE_DIR \
