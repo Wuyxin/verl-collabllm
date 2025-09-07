@@ -10,28 +10,28 @@ WORKING_DIR=/dfs/project/kgrlm/common/llm_twin
 export WANDB_ENTITY=dsp-team
 VERL_PATH="./"
 
-EXP_NAME=qwen2_5_72b_bs64_n2
+EXP_NAME=qwen2_5_14b_bs64_n2_gptmini_evalbyclaude
 VERL_PATH="../verl"
 DATA_PATH=$WORKING_DIR/data/reddit/persona
 OUTPUT_DIR=$WORKING_DIR/outputs/$EXP_NAME
 CACHE_DIR=$WORKING_DIR/verl_cache
 
-# export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export NUM_GPUS=16
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export NUM_GPUS=8
 
 export NEW_HF_CACHE=$WORKING_DIR/hf-cache/$USER
 export HF_HOME="$NEW_HF_CACHE"
 export HUGGINGFACE_HUB_CACHE="$NEW_HF_CACHE/hub"
 export TRANSFORMERS_CACHE="$NEW_HF_CACHE/hub"
 export HF_DATASETS_CACHE="$NEW_HF_CACHE/datasets"
-export XDG_CACHE_HOME="$NEW_HF_CACHE"    
+export XDG_CACHE_HOME="$NEW_HF_CACHE"
 export VLLM_DOWNLOAD_DIR="$NEW_HF_CACHE/hub"
 export VERL_CACHE_DIR="$NEW_HF_CACHE/verl-cache"
 
 BATCH_SIZE=64
 MICRO_BATCH_SIZE=1
 
-MODEL=Qwen/Qwen2.5-72B-Instruct
+MODEL=Qwen/Qwen2.5-14B-Instruct
 huggingface-cli download $MODEL
 
 python3 -m verl.trainer.main_ppo \
@@ -43,11 +43,8 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.name="compute_reward" \
     '+reward_model.reward_kwargs.belief_metrics={}' \
     '+reward_model.reward_kwargs.metric_weights.response_llm_judge_similarity=1.0' \
-    '+reward_model.reward_kwargs.response_metrics.llm_judge_similarity={model: claude-3-5-sonnet-latest, max_tokens: 1024, temperature: 0}' \
-    '+reward_model.reward_kwargs.val_response_metrics.bleu={}' \
-    '+reward_model.reward_kwargs.val_response_metrics.bert_score={model: microsoft/deberta-xlarge-mnli}' \
+    '+reward_model.reward_kwargs.response_metrics.llm_judge_similarity={model: gpt-4o-mini, max_tokens: 1024, temperature: 0}' \
     '+reward_model.reward_kwargs.val_response_metrics.llm_judge_similarity={model: claude-3-5-sonnet-latest, max_tokens: 1024, temperature: 0}' \
-    '+reward_model.reward_kwargs.val_response_metrics.indistinguishable_win_rate={model: claude-3-5-sonnet-latest, max_tokens: 1024, temperature: 0}' \
     data.train_files=$DATA_PATH/train.parquet \
     data.val_files=$DATA_PATH/test_2p.parquet \
     +data.cache_dir=$CACHE_DIR \
@@ -98,7 +95,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name="$EXP_NAME" \
     trainer.default_local_dir="$OUTPUT_DIR" \
     trainer.nnodes=1 \
-    trainer.save_freq=50 \
+    trainer.save_freq=100 \
     trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
     trainer.val_before_train=True \
@@ -111,5 +108,6 @@ python3 -m verl.trainer.main_ppo \
     +trainer.hf_hub.token="" \
     trainer.total_epochs=30 $@
     
+    # '+reward_model.reward_kwargs.val_response_metrics.indistinguishable_win_rate={model: gpt-4o-mini, max_tokens: 1024, temperature: 0}' \
     # actor_rollout_ref.model.lora_rank=16 \
     # actor_rollout_ref.model.lora_alpha=16 \
