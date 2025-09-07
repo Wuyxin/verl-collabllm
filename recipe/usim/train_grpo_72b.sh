@@ -39,7 +39,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     reward_model.enable=False \
     reward_model.reward_manager=usim \
-    custom_reward_function.path="$VERL_PATH/recipe/usim/reward.py" \
+    custom_reward_function.path="$VERL_PATH/recipe/usim/reward_function.py" \
     custom_reward_function.name="compute_reward" \
     '+reward_model.reward_kwargs.belief_metrics={}' \
     '+reward_model.reward_kwargs.metric_weights.response_llm_judge_similarity=1.0' \
