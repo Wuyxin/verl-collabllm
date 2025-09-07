@@ -10,7 +10,7 @@ WORKING_DIR=/dfs/project/kgrlm/common/llm_twin
 export WANDB_ENTITY=dsp-team
 VERL_PATH="./"
 
-EXP_NAME=qwen2_5_14b_bs64_n2_gptmini_evalbyclaude
+EXP_NAME=qwen2_5_14b_bs64_n2_gptmini_evalbyclaude_rerun
 VERL_PATH="../verl"
 DATA_PATH=$WORKING_DIR/data/reddit/persona
 OUTPUT_DIR=$WORKING_DIR/outputs/$EXP_NAME

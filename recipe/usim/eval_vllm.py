@@ -136,7 +136,7 @@ def main():
     ap.add_argument("--gpus", type=str, default="0,1,2,3", help='e.g., "0,1" (sets CUDA_VISIBLE_DEVICES)')
     ap.add_argument("--dtype", type=str, default="bfloat16", choices=["auto","float16","bfloat16"])
     ap.add_argument("--max_model_len", type=int, default=8192)
-    ap.add_argument("--gpu_mem_util", type=float, default=0.90)
+    ap.add_argument("--gpu_mem_util", type=float, default=0.80)
     ap.add_argument("--max_prompt_tokens", type=int, default=None, help="Optional pre-truncation of prompt tokens")
 
     ap.add_argument("--max_new_tokens", type=int, default=1024)

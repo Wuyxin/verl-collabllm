@@ -39,7 +39,7 @@ class UsimRewardManager(AbstractRewardManager):
         self.compute_score = compute_score or default_compute_score
 
         self.split = 'train' if self.num_examine == 0 else 'val'
-        print("*"*100, self.split)
+        print("*"*100, val_response_metrics)
 
         if self.split == 'train':
             self.response_metrics = response_metrics
