@@ -37,7 +37,7 @@ PYTHONPATH=. python3 recipe/usim/create_dataset.py \
 
 ### 3. Configure the Training Script
 
-Open `verl/recipe/usim/train_grpo.sh` and modify the following fields:
+Open `verl/recipe/usim/train_grpo_72b.sh` and modify the following fields:
 
 - **a) Set the working directory:**
 
@@ -65,7 +65,7 @@ Open `verl/recipe/usim/train_grpo.sh` and modify the following fields:
 
 Then run 
 ```bash
-sh recipe/usim/train_grpo.sh
+sh recipe/usim/train_grpo_72b.sh
 ```
 
 ---
