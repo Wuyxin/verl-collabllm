@@ -721,6 +721,14 @@ class RayPPOTrainer:
             if self.val_reward_fn is None:
                 raise ValueError("val_reward_fn must be provided for validation.")
             result = self.val_reward_fn(test_batch, return_dict=True)
+
+            # [LLM_TWIN] Edit for wandb logging
+            val_scalars = {}
+            if "reward_extra_info" in result:
+                for k, v in result["reward_extra_info"].items():
+                    val_scalars[f"val-aux/{k}"] = float(v.item() if hasattr(v, "item") else v)
+            result["reward_extra_info"] = {}
+
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
@@ -774,13 +782,13 @@ class RayPPOTrainer:
                         metric_sec = "val-aux"
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
-
         if len(sample_turns) > 0:
             sample_turns = np.concatenate(sample_turns)
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
+        metric_dict.update(val_scalars)
         return metric_dict
 
     def init_workers(self):
@@ -1242,7 +1250,10 @@ class RayPPOTrainer:
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(data=batch, reward_fn=self.reward_fn)
                         else:
+                            # [LLM_TWIN] Edit for wandb logging
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            llm_extra_infos_dict = reward_extra_infos_dict
+                            reward_extra_infos_dict = {}
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -1284,8 +1295,8 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
-                        if reward_extra_infos_dict:
-                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                        #if reward_extra_infos_dict:
+                        #    batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
@@ -1412,6 +1423,9 @@ class RayPPOTrainer:
                         "training/epoch": epoch,
                     }
                 )
+                # [LLM_TWIN] Edit for wandb logging
+                if llm_extra_infos_dict:
+                    metrics.update(llm_extra_infos_dict)
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))

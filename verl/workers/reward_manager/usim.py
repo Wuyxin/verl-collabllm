@@ -16,7 +16,7 @@ from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 import threading, time
-import wandb
+#import wandb
 
 
 
@@ -91,6 +91,8 @@ class UsimRewardManager(AbstractRewardManager):
 
         # Aggregate scores for each metric across repeated rollouts
         print(self.metrics)
+        print('==============================')
+        print('score dict', score_dicts)
         scores_by_metrics = {
             metric: torch.tensor(
                 [score_dict[metric] for score_dict in score_dicts]
@@ -118,7 +120,7 @@ class UsimRewardManager(AbstractRewardManager):
             [weighted_scores_by_metrics[metric] for metric in self.metrics]
         ).sum(dim=0)
         print('Avg scores:', log_weighted_scores_by_metrics)
-        wandb.log(log_weighted_scores_by_metrics)
+        #wandb.log(log_weighted_scores_by_metrics)
 
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         
@@ -126,6 +128,6 @@ class UsimRewardManager(AbstractRewardManager):
             reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
 
         if return_dict:
-            return {"reward_tensor": reward_tensor}
+            return {"reward_tensor": reward_tensor, "reward_extra_info": log_weighted_scores_by_metrics}
         else:
-            return reward_tensor
+            return reward_tensor, log_weighted_scores_by_metrics
