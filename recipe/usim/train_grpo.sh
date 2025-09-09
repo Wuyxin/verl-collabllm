@@ -10,9 +10,13 @@ WORKING_DIR=/dfs/project/kgrlm/common/llm_twin
 export WANDB_ENTITY=dsp-team
 VERL_PATH="./"
 
-EXP_NAME=qwen2_5_14b_bs64_n2_gptmini_evalbyclaude_rerun
+# EXP_NAME=qwen2_5_14b_bs64_n2_bertscore_evalbyclaude
+# '+reward_model.reward_kwargs.response_metrics.bert_score={}' \
+# '+reward_model.reward_kwargs.metric_weights.response_bert_score=1.0' \
+EXP_NAME=qwen2_5_14b_bs64_n2_gptmini_bulletprompt_evalbyclaude_full
 VERL_PATH="../verl"
 DATA_PATH=$WORKING_DIR/data/reddit/persona
+# OUTPUT_DIR=/lfs/ampere4/0/$USER/outputs/$EXP_NAME
 OUTPUT_DIR=$WORKING_DIR/outputs/$EXP_NAME
 CACHE_DIR=$WORKING_DIR/verl_cache
 
