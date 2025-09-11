@@ -234,7 +234,7 @@ class AmazonReviewMapper(DatasetMapper):
         return example["prompt"][0]["content"]
 
     def get_post_prompt(self, example):
-        return "From Amazon Review " + example["metadata"]["item_main_category"] + ": " + self.get_post(example)
+        return "From Amazon Review: " + self.get_post(example)
 
     def get_responsor_id(self, example):
         return example["metadata"]["review_user_id"]
@@ -418,6 +418,10 @@ if __name__ == "__main__":
     hdfs_dir = args.hdfs_dir
 
     os.makedirs(args.local_dir, exist_ok=True)
+    example_path = os.path.join(local_dir, "train.example.json")
+    mapped_dataset["train"].select(range(10)).to_json(example_path)
+    print(f"Wrote some example for debugging purpose to {example_path}")
+
     for ds_name, ds in mapped_dataset.items():
         out_path = os.path.join(local_dir, f"{ds_name}.parquet")
         ds.to_parquet(out_path)
