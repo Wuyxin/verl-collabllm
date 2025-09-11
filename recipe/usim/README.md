@@ -33,6 +33,26 @@ PYTHONPATH=. python3 recipe/usim/create_dataset.py \
   --persona
 ```
 
+#### New script adapting to other datasets
+
+##### Reddit
+```shell
+PYTHONPATH=. python recipe/usim/create_any_dataset.py \
+  --hf_repo "snap-stanford/filtered_subreddit_users" \
+  --dataset reddit
+```
+
+##### Amazon Review
+```shell
+PYTHONPATH=. python recipe/usim/create_any_dataset.py \
+  --hf_repo "snap-stanford/amazon_reviews_2023" \
+  --dataset amazon
+```
+
+##### Your own
+
+To implement your own dataset, add a subclass of DatasetMapper accordingly.
+
 ---
 
 ### 3. Configure the Training Script
