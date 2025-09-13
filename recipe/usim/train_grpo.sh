@@ -4,7 +4,7 @@ ENGINE=${1:-vllm}
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # Run this to make sure the common dir can be accessed by anyone
-# chmod -R g+w /dfs/project/kgrlm/common/llm_twin
+chmod -R g+w /dfs/project/kgrlm/common/llm_twin
 
 WORKING_DIR=/dfs/project/kgrlm/common/llm_twin
 export WANDB_ENTITY=dsp-team
