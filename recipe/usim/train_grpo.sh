@@ -10,12 +10,12 @@ WORKING_DIR=/dfs/project/kgrlm/common/llm_twin
 export WANDB_ENTITY=dsp-team
 VERL_PATH="./"
 
-# EXP_NAME=qwen2_5_14b_bs64_n2_bertscore_evalbyclaude
-# '+reward_model.reward_kwargs.response_metrics.bert_score={}' \
-# '+reward_model.reward_kwargs.metric_weights.response_bert_score=1.0' \
+# EXP_NAME=qwen2_5_14b_bs64_n2_bertscore_evalbyclaude_full
 EXP_NAME=qwen2_5_14b_bs64_n2_gptmini_bulletprompt_evalbyclaude_full
 VERL_PATH="../verl"
 DATA_PATH=$WORKING_DIR/data/reddit/persona
+# '+reward_model.reward_kwargs.response_metrics.bert_score={}' \
+# '+reward_model.reward_kwargs.metric_weights.response_bert_score=1.0' \
 # OUTPUT_DIR=/lfs/ampere4/0/$USER/outputs/$EXP_NAME
 OUTPUT_DIR=$WORKING_DIR/outputs/$EXP_NAME
 CACHE_DIR=$WORKING_DIR/verl_cache
@@ -99,8 +99,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name="$EXP_NAME" \
     trainer.default_local_dir="$OUTPUT_DIR" \
     trainer.nnodes=1 \
-    trainer.save_freq=100 \
-    trainer.test_freq=10 \
+    trainer.save_freq=200 \
+    trainer.test_freq=20 \
     trainer.default_hdfs_dir=null \
     trainer.val_before_train=True \
     trainer.log_val_generations=True \
@@ -110,7 +110,7 @@ python3 -m verl.trainer.main_ppo \
     +trainer.hf_hub.private=True \
     +trainer.hf_hub.branch="main" \
     +trainer.hf_hub.token="" \
-    trainer.total_epochs=30 $@
+    trainer.total_epochs=60 $@
     
     # '+reward_model.reward_kwargs.val_response_metrics.indistinguishable_win_rate={model: gpt-4o-mini, max_tokens: 1024, temperature: 0}' \
     # actor_rollout_ref.model.lora_rank=16 \

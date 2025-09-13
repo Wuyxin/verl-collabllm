@@ -116,7 +116,7 @@ def save_table(rows: List[Dict], out_csv: Path, out_md: Path):
 
 def main():
     ap = argparse.ArgumentParser("Side-by-side outputs with vLLM")
-    ap.add_argument("--test_parquet", type=str, default="/dfs/project/kgrlm/common/llm_twin/data/reddit/rl/test.parquet",
+    ap.add_argument("--test_parquet", type=str, default=None,
                     help="Path to parquet (e.g., /dfs/project/kgrlm/common/llm_twin/data/reddit/rl/test.parquet)")
     ap.add_argument("--num_examples", type=int, default=50,
                     help="Show first N examples (set None to use all)")
@@ -147,6 +147,9 @@ def main():
     ap.add_argument("--prefix", type=str, default="reddit_rl_eval")
 
     args = ap.parse_args()
+
+    print("*"* 100, ap)
+    args.test_parquet = "/dfs/project/kgrlm/common/llm_twin/data/reddit/persona/test.parquet"
 
     msgs_list, gold = read_dataset(args.test_parquet, args.num_examples)
 
