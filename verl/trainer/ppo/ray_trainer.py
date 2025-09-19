@@ -579,6 +579,44 @@ class RayPPOTrainer:
         except Exception as e:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
+    def _truncate_responses_at_tag(self, batch: DataProto) -> DataProto:
+        """Truncate responses at <response> tag using efficient single-token vectorized operations."""
+        
+        if not self.config.algorithm.get("stage_1", False):
+            return batch
+        
+        responses = batch.batch["responses"]
+        
+        tag_token_list = self.tokenizer.encode("<response>", add_special_tokens=False)
+        assert len(tag_token_list) == 1, f"Expected single token for <response>, got {len(tag_token_list)} tokens"
+        tag_token = tag_token_list[0]
+        
+        matches = (responses == tag_token)
+        
+        if not torch.any(matches):
+            print("[Stage 1] No <response> tags found, skipping truncation")
+            return batch
+        
+        truncate_positions = torch.argmax(matches.int(), dim=1)
+        
+        no_match_mask = ~matches.any(dim=1)
+        truncate_positions[no_match_mask] = responses.size(1)
+        
+        max_truncate_pos = truncate_positions.max().item()
+        
+        if max_truncate_pos < responses.size(1):
+            truncated_responses = responses[:, :max_truncate_pos]
+            batch.batch["responses"] = truncated_responses
+            
+            batch.batch["response_mask"] = truncated_responses != self.tokenizer.pad_token_id
+            
+            truncation_count = (truncate_positions < responses.size(1)).sum().item()
+            print(f"[Stage 1] Single-token truncation: {truncation_count}/{responses.size(0)} responses at <response> tag")
+        else:
+            print("[Stage 1] No truncation needed - no valid <response> tags found")
+        
+        return batch
+
     def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path):
         """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
@@ -1203,6 +1241,9 @@ class RayPPOTrainer:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                         else:
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch)
+                        
+                        # Apply truncation if stage_1 is enabled
+                        gen_batch_output = self._truncate_responses_at_tag(gen_batch_output)
                         
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         if self.reward_fn is None:
