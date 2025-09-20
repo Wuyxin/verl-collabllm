@@ -16,6 +16,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=256 \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     actor_rollout_ref.rollout.n=4 \
+    actor_rollout_ref.rollout.stop='["<response>"]' \
     actor_rollout_ref.actor.use_kl_loss=true \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
