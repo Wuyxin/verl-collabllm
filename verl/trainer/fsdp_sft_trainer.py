@@ -78,9 +78,38 @@ if is_cuda_available:
 elif is_npu_available:
     from transformers.integrations.npu_flash_attention import index_first_axis, pad_input, rearrange, unpad_input
 
+
+'''
+    Helpers for tag eval
+'''
+TAG_OPEN = "<tag>"
+TAG_CLOSE = "</tag>"
+RESP_OPEN = "<response>"
+RESP_CLOSE = "</response>"
+
+def _prompt_and_ref_tag_from_ids(tokenizer, ids):
+    text = tokenizer.decode(ids, skip_special_tokens=True)
+    i, j = text.find(TAG_OPEN), text.find(TAG_CLOSE)
+    if i == -1 or j == -1 or j <= i: return None, None
+    return text[:i], text[i + len(TAG_OPEN): j].strip()
+
+def _cut_at_markers(s: str) -> str:
+    stops = [p for p in (s.find(TAG_CLOSE), s.find(RESP_OPEN), s.find(RESP_CLOSE)) if p != -1]
+    return s if not stops else s[:min(stops)]
+
+import unicodedata, re
+
+def _norm(s: str) -> str:
+    s = unicodedata.normalize("NFKC", s).lower().strip().strip('"').strip("'")
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _tag_em(pred: str, ref: str) -> float:
+    return 1.0 if _norm(pred) == _norm(ref) else 0.0
+
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
-
 
 def extract_step(path):
     match = re.search(r"global_step_(\d+)", path)
@@ -146,6 +175,7 @@ class FSDPSFTTrainer:
         self.config.data.train_batch_size //= dp_size
 
         assert self.config.data.train_batch_size % self.config.data.micro_batch_size_per_gpu == 0
+
 
     def _build_dataloader(self, train_dataset, val_dataset):
         # build dataset
@@ -679,6 +709,78 @@ class FSDPSFTTrainer:
 
         return latest_checkpoint
 
+
+    def _get_tag_close_eos_id(self):
+        try:
+            tid = self.tokenizer.convert_tokens_to_ids(TAG_CLOSE)
+            if tid is None or tid < 0:
+                return None
+            return tid
+        except Exception:
+            return None
+
+    #[LLM_TWIN] tag eval methods
+    # Extract prompt + <tag> and reference tag strings from a batch of input_ids
+    @torch.no_grad()
+    def _collect_em_prompts(self, ids_batch, budget_left):
+        prompts, refs = [], []
+        for ids in ids_batch:
+            if budget_left <= 0:
+                break
+            prompt, ref = _prompt_and_ref_tag_from_ids(self.tokenizer, ids.tolist())
+            if prompt is None or ref is None:
+                continue
+            prompts.append(prompt + TAG_OPEN)
+            refs.append(ref)
+            budget_left -= 1
+        return prompts, refs
+
+    #[LLM_TWIN] tag eval methods
+    # Faster EM: get batched model generated next-token logits
+    # We keep track of exact matches in single tokens
+    @torch.no_grad()
+    def _em_from_prompts(self, prompts, refs, max_new_tokens: int, tag_close_id: int | None):
+        model = getattr(self.fsdp_model, "module", self.fsdp_model)
+        enc = self.tokenizer(prompts, return_tensors="pt", padding=True)
+        enc = {k: v.to(self.device_name) for k, v in enc.items()}
+        out = model(**enc, use_cache=False)
+        last_idx = enc["attention_mask"].sum(dim=1) - 1  
+        next_logits = out.logits[torch.arange(out.logits.size(0), device=out.logits.device), last_idx]
+        pred_id = next_logits.argmax(dim=-1).tolist()
+
+        em_hits = 0
+        need_gen_idx, gen_prompts, gen_refs = [], [], []
+        for i, (pid, ref) in enumerate(zip(pred_id, refs)):
+            toks = self.tokenizer(ref, add_special_tokens=False).input_ids
+            if len(toks) == 1:
+                if toks[0] == pid:
+                    em_hits += 1
+            else:
+                need_gen_idx.append(i)
+                gen_prompts.append(prompts[i])
+                gen_refs.append(ref)
+
+        if need_gen_idx:
+            sub = self.tokenizer(gen_prompts, return_tensors="pt", padding=True)
+            sub = {k: v.to(self.device_name) for k, v in sub.items()}
+            outg = model.generate(
+                **sub,
+                do_sample=False,
+                max_new_tokens=max_new_tokens,
+                pad_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=tag_close_id,
+                use_cache=True,
+                return_dict_in_generate=True,
+            )
+            new_tok = outg.sequences[:, sub["input_ids"].size(1):]
+            preds = self.tokenizer.batch_decode(new_tok, skip_special_tokens=True)
+            for p, ref in zip(preds, gen_refs):
+                if _tag_em(_cut_at_markers(p).strip(), ref) == 1.0:
+                    em_hits += 1
+
+        return em_hits, len(refs)
+
+
     def fit(self):
         rank = self.device_mesh.get_rank()
 
@@ -743,22 +845,48 @@ class FSDPSFTTrainer:
                 is_valid_step = global_step % self.config.trainer.test_freq == 0
                 is_save_step = global_step % self.config.trainer.save_freq == 0
 
-                # early exit or validation step
+                # [LLM_TWIN] Entire val loop edited to add tag evaluation
+                # TODO: Make more general than EM
                 if is_last_step or (self.config.trainer.test_freq > 0 and is_valid_step):
-                    # Perform validation
                     val_losses = []
+
+                    # EM config settings
+                    do_tag_eval = self.config.trainer.get("tag_eval_enable", True)
+                    tag_budget = self.config.trainer.get("tag_eval_max_examples", 128)
+                    max_new_tokens = self.config.trainer.get("tag_eval_max_new_tokens", 8)
+                    tag_close_id = self._get_tag_close_eos_id()
+
+                    em_sum_local = 0.0
+                    em_count_local = 0
+
                     for val_data in self.val_dataloader:
-                        val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(
-                            self.device_name
-                        )
-                        val_loss = self.validation_step(val_data)
+                        val_td = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).to(self.device_name)
+                        val_loss = self.validation_step(val_td)
                         val_losses.append(val_loss)
+
+                        if do_tag_eval and tag_budget > 0:
+                            prompts, refs = self._collect_em_prompts(val_data["input_ids"], tag_budget)
+                            if prompts:
+                                em_hits, count = self._em_from_prompts(prompts, refs, max_new_tokens, tag_close_id)
+                                em_sum_local += float(em_hits)
+                                em_count_local += int(count)
+                                tag_budget -= count
+
+                    if do_tag_eval:
+                        em_tensor = torch.tensor([em_sum_local, em_count_local], device=self.device_name, dtype=torch.float32)
+                        torch.distributed.all_reduce(em_tensor, op=torch.distributed.ReduceOp.SUM)
+                        em_sum, em_count = em_tensor.tolist()
+
                     if rank == 0:
                         val_loss = torch.mean(torch.stack(val_losses))
                         metric = {"val/loss": val_loss.detach().item()}
+                        if do_tag_eval:
+                            metric.update({"tag/EM": em_sum / em_count, "tag/count": int(em_count)})
+
                         tracking.log(data=metric, step=global_step)
                         last_valid_metric = metric
                     torch.distributed.barrier()
+
 
                 if is_last_step or (self.config.trainer.save_freq > 0 and is_save_step):
                     self.save_checkpoint(step=global_step)

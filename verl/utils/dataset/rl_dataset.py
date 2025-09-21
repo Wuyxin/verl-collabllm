@@ -123,6 +123,9 @@ class RLHFDataset(Dataset):
             self.speak_as = True
         else:
             self.speak_as = False
+        # [LLM_TWIN] Add tags
+        self.tags_cfg = dict(config.get("tags", {}))
+        self._tag_map = self._load_tag_map(self.tags_cfg) if self.tags_cfg else None
         
         self._download()
         self._read_files_and_tokenize()
@@ -133,6 +136,53 @@ class RLHFDataset(Dataset):
         data_files = self.data_files if not use_origin_parquet else self.original_data_files
         for i, parquet_file in enumerate(data_files):
             self.data_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir, use_shm=self.use_shm)
+    
+    # [LLM_TWIN] for loading tags
+    def _load_tag_map(self, cfg: dict) -> dict:
+        tag_path = cfg["tag_path"]
+        id_field = cfg.get("index_col")
+        tag_field = cfg.get("tag_col")
+
+        if tag_path.endswith(".parquet"):
+            dset = datasets.load_dataset("parquet", data_files=tag_path, split="train")
+        elif tag_path.endswith(".jsonl") or tag_path.endswith(".json"):
+            dset = datasets.load_dataset("json", data_files=tag_path, split="train")
+        else:
+            raise ValueError(f"Unsupported tag file format: {tag_path}")
+
+        # return dict: {row_id: tag_text}
+        return {row[id_field]: row[tag_field] for row in dset}
+
+    # [LLM_TWIN]
+    def _get_row_id(self, row: dict):
+        # Prefer explicit id in extra_info if present; else fall back to dataset index
+        ei = row.get("extra_info", {}) or {}
+        return ei.get("row_id", ei.get("index", None))
+
+    # [LLM_TWIN] Assume index specifies row id in extra_info
+    # TODO: Add multiturn compatibility?
+    def _maybe_inject_tag(self, messages: list, row: dict) -> list:
+        row_id = row["extra_info"]["index"]
+        if row_id is None or row_id not in self._tag_map:
+            print("[ERROR] Missing row id in tag map")
+
+        tag_text = str(self._tag_map[row_id]).strip()
+        if not tag_text:
+            print("[ERROR] Empty tag in tag map")
+
+        wrap = self.tags_cfg.get("wrap_with_markers", True)
+        role = self.tags_cfg.get("role", "user")
+
+        wrapped_tag = f"<tag>{tag_text}</tag>" if wrap else tag_text
+
+        # Concatenate tag to the end of the last message (should be the prompt)
+        messages = list(messages) 
+        last = messages[-1]
+        last_prompt = last.get("content", "")
+        sep = "\n" if last_prompt and not last_prompt.endswith("\n") else ""
+        last["content"] = last_prompt + sep + wrapped_tag
+        messages[-1] = last
+        return messages
 
     def _read_files_and_tokenize(self):
         dataframes = []
@@ -234,7 +284,13 @@ class RLHFDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
+        print('[]=================', row_dict, '================')
         messages = self._build_messages(row_dict)
+
+        # [LLM_TWIN] Injecting tag
+        if self.tags_cfg:
+            messages = self._maybe_inject_tag(messages, row_dict)
+
         model_inputs = {}
 
         if self.processor is not None:

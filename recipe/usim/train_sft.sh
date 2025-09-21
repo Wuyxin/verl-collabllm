@@ -1,7 +1,7 @@
 set -e
 set -x  # Print commands
 
-DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit/sft"
+DATA_PATH="/dfs/project/kgrlm/common/llm_twin/data/reddit_debug_sft"
 VERL_PATH="/lfs/ampere4/0/echoi1/collabllm/verl-collabllm"
 OUTPUT_DIR="/dfs/scratch0/echoi1/delete"
 
@@ -29,10 +29,10 @@ echo "Output: $OUTPUT_DIR"
 python3 -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=2 \
     -m verl.trainer.fsdp_sft_trainer \
     data.train_files="$DATA_PATH/train.parquet" \
-    data.val_files="$DATA_PATH/test.parquet" \
+    data.val_files="$DATA_PATH/test_2p.parquet" \
     +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja"\
     data.multiturn.enable=false \
-    data.max_length=3000 \
+    data.max_length=6000 \
     data.train_batch_size=2 \
     data.prompt_key=messages \
     data.response_key=generation \
@@ -43,14 +43,16 @@ python3 -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=2 \
     optim.lr=2e-5 \
     optim.warmup_steps_ratio=0.1 \
     optim.lr_scheduler=cosine \
+    +trainer.val_before_train=True \
     trainer.total_epochs=3 \
     trainer.project_name=dtwin_sft \
     trainer.experiment_name=medium_dataset_lora \
     trainer.default_local_dir="$OUTPUT_DIR" \
     trainer.save_freq=402 \
-    trainer.test_freq=402 \
+    trainer.test_freq=1 \
     trainer.max_ckpt_to_keep=2 \
     trainer.n_gpus_per_node=2 \
+    +trainer.tag_eval_enable=true \
     model.lora_rank=16 \
     model.lora_alpha=16 \
     model.target_modules=all-linear 
