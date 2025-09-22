@@ -10,6 +10,7 @@ import argparse
 from pathlib import Path
 from collections import Counter
 from datasets import Features, Value, Sequence
+from copy import deepcopy
 
 '''
     Verl data processing
@@ -22,27 +23,27 @@ from datasets import Features, Value, Sequence
         - Add persona and comment history
 '''
 
+from datasets import Features, Value, Sequence
 
-TARGET_FEATURES = Features({
-    "data_source": Value("string"),
-    "prompt": [{  
-        "role": Value("string"),
-        "content": Value("string"),
-        "name": Value("string"),
-    }],
-    "ability": Value("string"),
-    "reward_model": {
-        "style": Value("string"),
-        "ground_truth": Value("string"),
-    },
-    "extra_info": {
-        "split": Value("string"),
-        "index": Value("int64"),
-        "name": Value("string"),
-        "post": Value("string"),
-    },
-})
+from copy import deepcopy
+from datasets import Features, Value, Sequence
 
+from datasets.features import Features as HFFeatures, Sequence as HFSequence
+from datasets import Dataset as HFDataset
+
+
+_TEMPLATE_ROW = {
+    "data_source": "",
+    "prompt": [
+        {"role": "system", "content": "", "name": ""},
+        {"role": "user",   "content": "", "name": ""},
+    ],
+    "ability": "",
+    "reward_model": {"style": "", "ground_truth": ""},
+    "extra_info": {"split": "", "index": 0, "name": "", "post": ""},
+}
+
+TARGET_FEATURES = HFDataset.from_list([_TEMPLATE_ROW]).features
 
 class DatasetMapper:
     """
@@ -166,30 +167,30 @@ class DatasetMapper:
                 "memory": None,
             }
 
-            system_content = fix_tags(self.raw_template.format(**values))  # print this out to check it's correct
+            system_content = self.raw_template.format(**values)  # print this out to check it's correct
 
             data = {
                 "data_source": data_source,
                 "prompt": [
                     {
                         "role": "system",
-                        "name": None,
-                        "content": system_content,
+                        "name": "",
+                        "content": str(system_content),
                     },
                     {
                         "role": "user",
-                        "name": poster_id,
-                        "content": user_prompt,
+                        "name": str(poster_id),
+                        "content": str(user_prompt),
                     },
                 ],
                 "ability": "generation",
-                "reward_model": {"style": "custom", "ground_truth": response},
+                "reward_model": {"style": "custom", "ground_truth": str(response)},
                 "extra_info": {
-                    "split": split,
-                    "index": idx,
-                    "name": responsor_id,
+                    "split": str(split),
+                    "index": int(idx),
+                    "name": str(responsor_id),
                     #"description": example["user_persona"],
-                    "post": post,
+                    "post": str(post),
                     # "media_source": example["character"]["media_source"]
                 },
             }
@@ -296,7 +297,7 @@ if __name__ == "__main__":
     parser.add_argument("--persona", action="store_true", default=False)  # add the persona
     parser.add_argument("--past_comments", action="store_true", default=False)
     parser.add_argument("--sft", action="store_true", default=False)
-    parser.add_argument("--tag_path", default="/dfs/project/kgrlm/common/llm_twin/data/reddit_debug_verl/index_tags.jsonl")
+    parser.add_argument("--tag_path", default=None) # "/dfs/project/kgrlm/common/llm_twin/data/reddit_debug_verl/index_tags.jsonl"
     parser.add_argument("--split", default=None)
 
     args = parser.parse_args()
@@ -314,7 +315,7 @@ if __name__ == "__main__":
     else:
         prompt_template_path = "./recipe/usim/character_templates/character_template_bare.txt"'''
 
-    prompt_template_path = "./recipe/usim/character_templates/character_template_tag.txt"
+    prompt_template_path = "./recipe/usim/character_templates/system_prompt_tags.txt"
 
     # CHANGE ARGS
     data_source = args.data_source
@@ -361,9 +362,6 @@ if __name__ == "__main__":
     else:
         raw = Dataset.from_parquet(args.parquet_path)
 
-    # 3). Map for each example
-    # --- Map a single split (no splitting logic) ---
-    # Assume `raw` is a single hf Dataset loaded from args.parquet_path
     if args.split:
         split_name = args.split
     else:
@@ -380,7 +378,31 @@ if __name__ == "__main__":
 
     def map_fn_wrap(ex, idx):
         out = map_fn_raw(ex, idx)
-        if args.sft:
+        if not args.sft:
+            msgs = out.get("prompt") or []
+            out["prompt"] = [
+                {
+                    "role":    str((m or {}).get("role", "")),
+                    "content": str((m or {}).get("content", "")),
+                    "name":    "" if (m or {}).get("name") in (None, "None") else str((m or {}).get("name", "")),
+                }
+                for m in msgs
+            ] or [{"role": "user", "content": "", "name": ""}]
+
+            rm = out.get("reward_model") or {}
+            out["reward_model"] = {"style": str(rm.get("style","")), "ground_truth": str(rm.get("ground_truth",""))}
+
+            ei = out.get("extra_info") or {}
+            out["extra_info"] = {
+                "split": str(ei.get("split","")),
+                "index": int(ei.get("index", idx)),
+                "name":  str(ei.get("name","")),
+                "post":  str(ei.get("post","")),
+            }
+
+            out["data_source"] = str(out.get("data_source",""))
+            out["ability"]     = str(out.get("ability",""))
+        else:
             msgs = out.get("messages", [])
             out["messages"] = [{
                 "role": str(m.get("role", "")),
@@ -388,7 +410,6 @@ if __name__ == "__main__":
                 "name": "" if m.get("name") in (None, "None") else str(m.get("name"))
             } for m in msgs]
 
-            # keep other fields consistent with features
             ei = out.get("extra_info") or {}
             out["extra_info"] = {"split": str(ei.get("split", out.get("split", ""))),
                                 "index": int(ei.get("index", out.get("index", idx)))}
@@ -398,24 +419,25 @@ if __name__ == "__main__":
             out["generation"] = "" if out.get("generation") is None else str(out["generation"])
         return out
 
-
-    if args.sft:
+    if not args.sft:
         mapped_ds = raw.map(
             function=map_fn_wrap,
             with_indices=True,
             remove_columns=raw.column_names,
             load_from_cache_file=False,
             num_proc=1,
+            features=TARGET_FEATURES,  
         )
     else:
         mapped_ds = raw.map(
             function=map_fn_wrap,
             with_indices=True,
             remove_columns=raw.column_names,
-            features=TARGET_FEATURES,
             load_from_cache_file=False,
             num_proc=1,
         )
+    
+    mapped_ds = mapped_ds.cast(TARGET_FEATURES)
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
@@ -430,7 +452,13 @@ if __name__ == "__main__":
 
     # Write the mapped parquet
     out_path = os.path.join(local_dir, f"{split_name}.parquet")
+    if not args.sft:
+        mapped_ds = mapped_ds.cast(TARGET_FEATURES)  
+        print('SANITY CHECK:', mapped_ds.features)   
+        assert isinstance(mapped_ds[0]["prompt"], list) and isinstance(mapped_ds[0]["prompt"][0], dict)
+
     mapped_ds.to_parquet(out_path)
+
     print(f'Wrote "{split_name}" with {len(mapped_ds)} rows to {out_path}')
 
     # Optional HDFS copy

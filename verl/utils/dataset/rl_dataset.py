@@ -284,13 +284,11 @@ class RLHFDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
-        print('[]=================', row_dict, '================')
         messages = self._build_messages(row_dict)
 
         # [LLM_TWIN] Injecting tag
         if self.tags_cfg:
             messages = self._maybe_inject_tag(messages, row_dict)
-
         model_inputs = {}
 
         if self.processor is not None:
