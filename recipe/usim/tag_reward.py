@@ -1,7 +1,9 @@
 import re
+import json
 from openai import OpenAI
 from pydantic import BaseModel
-from typing import Optional
+
+PREDICTIONS_FILE = "/dfs/project/kgrlm/akhatua/digitial-human-lm/verl/recipe/usim/predictions.json"
 
 client = OpenAI()
 
@@ -23,46 +25,96 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
         dict: Contains "score" and "tag_star" for two-stage processing
     """
     
+    print(f"\nREWARD FUNCTION DEBUG")
+    print(f"=" * 50)
+    print(f"Data Source: {data_source}")
+    print(f"Model Output: {solution_str}")
+    print(f"Ground Truth: {ground_truth}")
+    print(f"Extra Info Keys: {list(extra_info.keys()) if extra_info else 'None'}")
+    
     try:
         # Extract single tag from <tag>...</tag> format
         tag_match = re.search(r'<tag>(.*?)</tag>', solution_str)
         
         if not tag_match:
+            print(f"No tag found in solution: {solution_str}")
             return {"score": 0.0, "tag_star": ""}
         
         tag = tag_match.group(1).strip()
+        print(f"Extracted Tag: '{tag}'")
         
         # Get context information from extra_info
         original_post = extra_info.get("original_post", "") if extra_info else ""
         user_persona = extra_info.get("user_persona", "") if extra_info else ""
         bag_of_tokens = extra_info.get("bag_of_tokens", []) if extra_info else []
         
+        print(f"Original Post: {original_post[:100]}...")
+        print(f"User Persona: {user_persona[:100]}...")
+        print(f"Bag of Tokens: {bag_of_tokens}")
+        
+        # Extract response from ground truth for evaluation
+        response_match = re.search(r'<response>(.*?)</response>', ground_truth, re.DOTALL)
+        actual_comment = response_match.group(1).strip() if response_match else ground_truth
+        
+        print(f"Actual Comment: {actual_comment[:100]}...")
+        
         # LLM judge with structured output
-        response = client.responses.parse(
-            model="gpt-5",
-            input=[
+        print(f"Calling LLM Judge...")
+        response = client.beta.chat.completions.parse(
+            model="gpt-4o-mini",
+            messages=[
                 {
                     "role": "system", 
-                    "content": "Rate how well the tag connects the post to the comment given the user persona. Provide reasoning and score (0.0-1.0)."
+                    "content": "Rate how well the tag connects the AITA post to the comment given the user persona. Provide reasoning and score (0.0-1.0)."
                 },
                 {
                     "role": "user",
                     "content": f"""User Persona: {user_persona}
-Post: {original_post}
-Comment: {ground_truth}
+
+AITA Post: {original_post}
+
+Comment: {actual_comment}
+
 Tag: {tag}
-Bag of tokens: {', '.join(bag_of_tokens) if bag_of_tokens else 'None'}"""
+
+Rate how well this tag captures the essence of the user's response to the AITA post, considering their persona."""
                 },
             ],
-            text_format=TagJudgment,
+            response_format=TagJudgment,
         )
         
-        judgment = response.output_parsed
+        judgment = response.choices[0].message.parsed
+        print(f"LLM Judge Result:")
+        print(f"   Reasoning: {judgment.reasoning}")
+        print(f"   Score: {judgment.score}")
         
-        return {
-            "score": max(0.0, min(1.0, judgment.score)),
+        final_score = max(0.0, min(1.0, judgment.score))
+        result = {
+            "score": final_score,
             "tag_star": tag
         }
+        
+        # Load existing predictions
+        idx = extra_info.get("index", -1) if extra_info else -1
+        try:
+            with open(PREDICTIONS_FILE, "r") as f:
+                data = json.load(f)
+        except:
+            data = {}
+        
+        # Add new prediction
+        if str(idx) not in data:
+            data[str(idx)] = {"predictions": []}
+        data[str(idx)]["predictions"].append({"tag": tag, "score": final_score})
+        
+        # Save back
+        with open(PREDICTIONS_FILE, "w") as f:
+            json.dump(data, f)
+        
+        print(f"Final Result: {result}")
+        print(f"=" * 50)
+        
+        return result
         
     except Exception as e:
         print(f"Error in tag reward function: {e}")
