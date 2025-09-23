@@ -63,8 +63,13 @@ class CollabLLMRewardManager(AbstractRewardManager):
                 return {"reward_tensor": data.batch["rm_scores"]}
             else:
                 return data.batch["rm_scores"]
-        # Use asyncio.run to handle the async computation
-        return asyncio.run(self._compute_rewards_async(data, return_dict))
+        # Use thread-compatible async loop management instead of asyncio.run()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self._compute_rewards_async(data, return_dict))
+        finally:
+            loop.close()
 
     async def _compute_rewards_async(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
         # batched scoring
