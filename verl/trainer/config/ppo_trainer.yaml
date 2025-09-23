@@ -155,6 +155,9 @@ algorithm:
   # Whether to normalize advantages by std (specific to GRPO)
   norm_adv_by_std_in_grpo: True
 
+  # Whether to enable stage 1 training (truncate responses at <response> tag)
+  stage_1: False
+
   # Whether to enable in-reward KL penalty
   use_kl_in_reward: False
 

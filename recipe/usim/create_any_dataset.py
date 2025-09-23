@@ -9,62 +9,41 @@ from verl.utils.hdfs_io import copy, makedirs
 import argparse
 from pathlib import Path
 from collections import Counter
-from datasets import Features, Value
+from datasets import Features, Value, Sequence
+from copy import deepcopy
 
-"""
-    Data preprocessing
-    ASSUMPTION: response only tag still includes the response tokens.....?
-    Original HF dataset only has train
-    Check: DO we want to add anything else in extra_info?
-    Remove columns that we don't use (metadata etc.)
-"""
+'''
+    Verl data processing
+    NOTES:
+        - parquet works but jsonl hasn't been tested 
+        - ASSUME input parquet is already processed into train/seen/unseen etc. in process_raw.py
+        - CHECK if we want to add more in extra_info
+        - Not tested for belief
+    TODO:
+        - Add persona and comment history
+'''
 
+from datasets import Features, Value, Sequence
 
-def extract_response_block(text):
-    m = re.search(r"<response>\s*(.*?)\s*</response>", text, flags=re.DOTALL)
-    return m.group(1) if m else None
+from copy import deepcopy
+from datasets import Features, Value, Sequence
 
-
-def fix_tags(s):
-    if not isinstance(s, str):
-        return s
-    s = s.replace("<\\belief>", "</belief>").replace("<\\response>", "</response>")
-    s = re.sub(r"<\\\s*belief>", "</belief>", s)
-    s = re.sub(r"<\\\s*response>", "</response>", s)
-    return s
+from datasets.features import Features as HFFeatures, Sequence as HFSequence
+from datasets import Dataset as HFDataset
 
 
-BELIEF_OPEN = re.compile(r"<\s*belief\s*>", re.I)
-BELIEF_CLOSE = re.compile(r"<\s*/\s*belief\s*>", re.I)
-RESP_OPEN = re.compile(r"<\s*response\s*>", re.I)
-RESP_CLOSE = re.compile(r"<\s*/\s*response\s*>", re.I)
+_TEMPLATE_ROW = {
+    "data_source": "",
+    "prompt": [
+        {"role": "system", "content": "", "name": ""},
+        {"role": "user",   "content": "", "name": ""},
+    ],
+    "ability": "",
+    "reward_model": {"style": "", "ground_truth": ""},
+    "extra_info": {"split": "", "index": 0, "name": "", "post": ""},
+}
 
-
-def add_missing_closing_tags(s: str) -> str:
-    if not isinstance(s, str):
-        return s
-    text = s
-
-    bo = BELIEF_OPEN.search(text)
-    if bo:
-        bc = BELIEF_CLOSE.search(text, bo.end())
-        ro = RESP_OPEN.search(text, bo.end())
-        # missing </belief> and response appears after <belief>
-        if bc is None and ro:
-            insert_at = ro.start()
-            text = text[:insert_at] + "</belief>" + text[insert_at:]
-        # (optional) if no <response> at all and no </belief>, close at end
-        elif bc is None and not ro:
-            text = text + "</belief>"
-
-    ro = RESP_OPEN.search(text)
-    if ro:
-        rc = RESP_CLOSE.search(text, ro.end())
-        if rc is None:
-            text = text + "</response>"
-
-    return text
-
+TARGET_FEATURES = HFDataset.from_list([_TEMPLATE_ROW]).features
 
 class DatasetMapper:
     """
@@ -78,10 +57,15 @@ class DatasetMapper:
         - response: the response content
     """
 
-    def __init__(self, raw_template: str, data_source: str):
+    def __init__(self, raw_template: str, data_source: str, tag_path=None):
         self.platform = None
         self.raw_template = raw_template
         self.data_source = data_source
+        if tag_path is not None:
+            dset = datasets.load_dataset("json", data_files=tag_path, split="train")
+            self.tag_dict = {row["index"]: row["tags"] for row in dset}
+        else:
+            self.tag_dict = None
 
     def get_comment_history(self, example) -> str:
         raise NotImplementedError()
@@ -107,6 +91,47 @@ class DatasetMapper:
     def normalize_author(self, metadata: dict) -> str | None:
         raise NotImplementedError()
 
+
+    def make_map_fn_sft(self, split):
+        def process_fn(example, idx):
+            user_prompt = self.get_post_prompt(example)
+
+            response = self.get_response(example)
+
+            if self.tag_dict is not None:
+                tag = self.tag_dict[idx]
+                response = f"<tag>{tag}</tag><response>{response}</response>"
+
+            responsor_id = self.get_responsor_id(example)
+
+            values = {
+                "persona": '',#example["user_persona"]
+                "name": responsor_id,
+                #"description": example["character"]["description"],
+                "platform": "Reddit",
+                "memory": None
+            }
+            
+            system_content = self.raw_template.format(**values)
+            return {
+            "messages": [                  
+                {"role": "system", "name": None, "content": system_content},
+                {"role": "user",  "name": self.get_poster_id(example), "content": user_prompt},
+            ],
+            "generation": response,  
+            "name": responsor_id,                 
+            "split": split,
+            "index": idx,
+            "extra_info": {
+                "split": split,
+                "index": idx,
+                #"description": ", "#example["user_persona"],
+                #"post": "", #post,
+                #"media_source": "Reddit" #example["character"]["media_source"]
+            },
+        }
+        return process_fn
+
     def make_map_fn(self, split):
         # FIXME: this comment is copied from previous code and may be out-of-date.
         """In the make_map_fn, each data field should consist of the following 5 fields:
@@ -121,7 +146,7 @@ class DatasetMapper:
 
         def process_fn(example, idx):
             post = self.get_post(example)
-            comment_history = self.get_comment_history(example)
+            comment_history = "" #self.get_comment_history(example)
             response = self.get_response(example)
             """if args.response_only:
                 response = fix_tags(response)
@@ -136,35 +161,36 @@ class DatasetMapper:
 
             values = {
                 "name": poster_id,
-                "description": example["user_persona"],
+                "persona": "",#example["user_persona"],
                 "comment_history": comment_history,
                 "platform": self.platform,
                 "memory": None,
             }
 
-            system_content = fix_tags(self.raw_template.format(**values))  # print this out to check it's correct
+            system_content = self.raw_template.format(**values)  # print this out to check it's correct
 
             data = {
                 "data_source": data_source,
                 "prompt": [
                     {
                         "role": "system",
-                        "content": system_content,
+                        "name": "",
+                        "content": str(system_content),
                     },
                     {
                         "role": "user",
-                        "name": poster_id,
-                        "content": user_prompt,
+                        "name": str(poster_id),
+                        "content": str(user_prompt),
                     },
                 ],
                 "ability": "generation",
-                "reward_model": {"style": "custom", "ground_truth": response},
+                "reward_model": {"style": "custom", "ground_truth": str(response)},
                 "extra_info": {
-                    "split": split,
-                    "index": idx,
-                    "name": responsor_id,
-                    "description": example["user_persona"],
-                    "post": post,
+                    "split": str(split),
+                    "index": int(idx),
+                    "name": str(responsor_id),
+                    #"description": example["user_persona"],
+                    "post": str(post),
                     # "media_source": example["character"]["media_source"]
                 },
             }
@@ -174,8 +200,8 @@ class DatasetMapper:
 
 
 class RedditMapper(DatasetMapper):
-    def __init__(self, raw_template: str, data_source: str):
-        super().__init__(raw_template, data_source)
+    def __init__(self, raw_template: str, data_source: str, tag_path):
+        super().__init__(raw_template, data_source, tag_path)
         self.platform = "Reddit"
 
     def get_comment_history(self, example):
@@ -186,7 +212,8 @@ class RedditMapper(DatasetMapper):
         return comment_history
 
     def get_poster_id(self, example):
-        return example["metadata"]["post_author"]
+        # [EDITED]
+        return example["metadata"]["author_fullname"]
 
     def get_post(self, example):
         return example["prompt"][0]["content"]
@@ -195,10 +222,12 @@ class RedditMapper(DatasetMapper):
         return "From subreddit " + example["conv_id"] + ": " + self.get_post(example)
 
     def get_responsor_id(self, example):
-        return example["metadata"]["comment_author"]
+        # [EDITED]
+        return example["user_id"]
 
     def get_response_ts(self, metadata: dict) -> int:
-        res = int(metadata["comment_created_utc"])
+        # [EDITED] fixed from comment_created_utc --> created_utc
+        res = int(metadata["created_utc"])
         return res
 
     def get_response(self, example):
@@ -258,6 +287,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["reddit", "amazon"], required=True)
     parser.add_argument("--jsonl_path", type=str, default=None)
+    parser.add_argument("--parquet_path", type=str, default=None)
     parser.add_argument("--local_dir")
     parser.add_argument("--hf_repo", default="snap-stanford/filtered_subreddit_users")
     parser.add_argument("--hdfs_dir", default=None)
@@ -266,6 +296,9 @@ if __name__ == "__main__":
     parser.add_argument("--response_only", action="store_true", default=False)
     parser.add_argument("--persona", action="store_true", default=False)  # add the persona
     parser.add_argument("--past_comments", action="store_true", default=False)
+    parser.add_argument("--sft", action="store_true", default=False)
+    parser.add_argument("--tag_path", default=None) # "/dfs/project/kgrlm/common/llm_twin/data/reddit_debug_verl/index_tags.jsonl"
+    parser.add_argument("--split", default=None)
 
     args = parser.parse_args()
     if args.local_dir is None:
@@ -275,12 +308,14 @@ if __name__ == "__main__":
     # If persona is true: character_template.txt
     # If past_comments is true: character_template_past_comments.txt
     # If neither persona and past_comments is true: character_template_bare.txt
-    if args.persona:
+    '''if args.persona:
         prompt_template_path = "./recipe/usim/character_templates/character_template.txt"
     elif args.past_comments:
         prompt_template_path = "./recipe/usim/character_templates/character_template_past_comments.txt"
     else:
-        prompt_template_path = "./recipe/usim/character_templates/character_template_bare.txt"
+        prompt_template_path = "./recipe/usim/character_templates/character_template_bare.txt"'''
+
+    prompt_template_path = "./recipe/usim/character_templates/system_prompt_tags.txt"
 
     # CHANGE ARGS
     data_source = args.data_source
@@ -296,7 +331,7 @@ if __name__ == "__main__":
         MapperClass = AmazonReviewMapper
     else:
         raise ValueError(f"Unknown dataset {args.dataset}")
-    mapper = MapperClass(raw_template, data_source)
+    mapper = MapperClass(raw_template, data_source, args.tag_path)
 
     if args.jsonl_path:
         # TODO: Fix this part for any dataset.
@@ -325,108 +360,109 @@ if __name__ == "__main__":
         raw = DatasetDict({"train": raw_train})
         print("USING JSONL PATH")
     else:
-        raw = datasets.load_dataset(args.hf_repo, "default")
+        raw = Dataset.from_parquet(args.parquet_path)
 
-    print("Number of rows before filtering ", raw.num_rows)
+    if args.split:
+        split_name = args.split
+    else:
+        split_name = Path(args.parquet_path).stem 
 
-    MIN_ROWS = 50  # adjust if needed
-    UNSEEN_FRACTION = 0.1
-    SEEN_TEST_FRACTION = 0.1
-    VAL_FRACTION = 0.1
-    #                →→→→→→→→→ Users
-    #                   1-UNSEEN_FRACTION      | UNSEEN_FRACTION
-    #   ↓          |---------------------------+--------|
-    #   ↓          |                           |        |
-    #   ↓          |                           |        |
-    #   sort       |                           |        |
-    #   by         |                           |        |
-    #   timestamp  |                           |        |
-    #              |                           |        |
-    #              |---------------------------+        |
-    #              |    VAL_FRACTION           |        |
-    #              |---------------------------+        |
-    #              |    SEEN_TEST_FRACTION     |        |
-    #              |------------------------------------|
+    print(f'Mapping Dataset "{split_name}": {len(raw)} rows')
+    src_cols = raw.column_names
+    map_fn_raw = mapper.make_map_fn(split_name) if not args.sft else mapper.make_map_fn_sft(split_name)
 
-    info = raw["train"].map(
-        lambda row: {
-            "responsor_id": mapper.normalize_author(row["metadata"]),
-            "timestamp": mapper.get_response_ts(row["metadata"]),
-        }
-    )
-    responser_ids = info["responsor_id"]
-    timestamps = info["timestamp"]
-    raw_df = raw["train"].to_polars()
-    # Add a column "reponsor_id" for convenience, and filter out null (e.g., it is "[deleted]" and was normalized to None)
-    raw_df = raw_df.with_columns(
-        pl.Series(responser_ids).alias("responsor_id"), pl.Series(timestamps).alias("timestamp")
-    ).filter(pl.col("responsor_id").is_not_null())
-    # Filter out responsors with < MIN_ROWS rows
-    raw_df = raw_df.filter(pl.len().over("responsor_id") >= MIN_ROWS)
-    by_responsor = raw_df.partition_by("responsor_id", maintain_order=True, as_dict=True, include_key=True)
-    print(f"Total valid responsors: {len(by_responsor)}")
-    print(f"Total valid responses: {len(raw_df)}")
+    if args.sft:
+        features = SFT_FEATURES
+    else:
+        features = TARGET_FEATURES
 
-    # 1). Split the dataset into seen/unseen datasets (sort is for stable sampling)
-    unseen_responsor_ids = set(
-        raw_df.select("responsor_id").unique().sort("responsor_id").sample(fraction=UNSEEN_FRACTION, seed=42).to_series()
-    )
-    unseen_test_df = raw_df.filter(pl.col("responsor_id").is_in(unseen_responsor_ids))
-    seen_df = raw_df.filter(~pl.col("responsor_id").is_in(unseen_responsor_ids))
-    print(f"By splitting seen/unseen responsors, we got seen size {len(seen_df)}, unseen size {len(unseen_test_df)}")
+    def map_fn_wrap(ex, idx):
+        out = map_fn_raw(ex, idx)
+        if not args.sft:
+            msgs = out.get("prompt") or []
+            out["prompt"] = [
+                {
+                    "role":    str((m or {}).get("role", "")),
+                    "content": str((m or {}).get("content", "")),
+                    "name":    "" if (m or {}).get("name") in (None, "None") else str((m or {}).get("name", "")),
+                }
+                for m in msgs
+            ] or [{"role": "user", "content": "", "name": ""}]
 
-    # 2). For each seen responsor, split into train/val and seen_test datasets
-    seen_df_per_user = seen_df.partition_by("responsor_id", maintain_order=True, as_dict=True, include_key=True)
-    seen_test_df_per_user = []
-    seen_train_val_df_per_user = []
-    for (responsor_id,), df in seen_df_per_user.items():
-        df = df.sort("timestamp")
-        n = len(df)
-        seen_test_n = int(round(n * SEEN_TEST_FRACTION))
-        assert (
-            seen_test_n > 0
-        ), f"Given reasonable {MIN_ROWS=}, {SEEN_TEST_FRACTION=}, each user should have at least one row in seen test set. Adjust them if not."
-        seen_test_df_per_user.append(df[n - seen_test_n :])
-        seen_train_val_df_per_user.append(df[: n - seen_test_n])
-    seen_test_df = pl.concat(seen_test_df_per_user)
-    train_val_df = pl.concat(seen_train_val_df_per_user)
-    print(f"Partitioned seen ({len(seen_df)}) into train_val ({len(train_val_df)}) and seen_test ({len(seen_test_df)})")
+            rm = out.get("reward_model") or {}
+            out["reward_model"] = {"style": str(rm.get("style","")), "ground_truth": str(rm.get("ground_truth",""))}
 
-    train_val_ds = Dataset.from_polars(train_val_df)
+            ei = out.get("extra_info") or {}
+            out["extra_info"] = {
+                "split": str(ei.get("split","")),
+                "index": int(ei.get("index", idx)),
+                "name":  str(ei.get("name","")),
+                "post":  str(ei.get("post","")),
+            }
 
-    train_val_ds = train_val_ds.train_test_split(
-        test_size=VAL_FRACTION,
-        seed=42,
-        shuffle=True,
-    )
-    dataset: dict[str, Dataset] = {
-        "train": train_val_ds["train"],
-        "val": train_val_ds["test"],
-        "seen_test": Dataset.from_polars(seen_test_df),
-        "unseen_test": Dataset.from_polars(unseen_test_df),
-    }
+            out["data_source"] = str(out.get("data_source",""))
+            out["ability"]     = str(out.get("ability",""))
+        else:
+            msgs = out.get("messages", [])
+            out["messages"] = [{
+                "role": str(m.get("role", "")),
+                "content": str(m.get("content", "")),
+                "name": "" if m.get("name") in (None, "None") else str(m.get("name"))
+            } for m in msgs]
 
-    # 3). Map for each example
-    mapped_dataset: dict[str, Dataset] = {}
-    for ds_name, ds in dataset.items():
-        print(f"""Mapping Dataset "{ds_name}": {len(ds)} rows""")
-        src_cols = ds.column_names
-        mapped_ds = ds.map(function=mapper.make_map_fn(ds_name), with_indices=True, remove_columns=src_cols)
-        mapped_dataset[ds_name] = mapped_ds
+            ei = out.get("extra_info") or {}
+            out["extra_info"] = {"split": str(ei.get("split", out.get("split", ""))),
+                                "index": int(ei.get("index", out.get("index", idx)))}
+            out["split"] = str(out.get("split", ""))
+            out["index"] = int(out.get("index", idx))
+            out["name"] = "" if out.get("name") is None else str(out["name"])
+            out["generation"] = "" if out.get("generation") is None else str(out["generation"])
+        return out
+
+    if not args.sft:
+        mapped_ds = raw.map(
+            function=map_fn_wrap,
+            with_indices=True,
+            remove_columns=raw.column_names,
+            load_from_cache_file=False,
+            num_proc=1,
+            features=TARGET_FEATURES,  
+        )
+    else:
+        mapped_ds = raw.map(
+            function=map_fn_wrap,
+            with_indices=True,
+            remove_columns=raw.column_names,
+            load_from_cache_file=False,
+            num_proc=1,
+        )
+    
+    mapped_ds = mapped_ds.cast(TARGET_FEATURES)
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
-    os.makedirs(args.local_dir, exist_ok=True)
-    example_path = os.path.join(local_dir, "train.example.json")
-    mapped_dataset["train"].select(range(10)).to_json(example_path)
-    print(f"Wrote some example for debugging purpose to {example_path}")
+    os.makedirs(local_dir, exist_ok=True)
 
-    for ds_name, ds in mapped_dataset.items():
-        out_path = os.path.join(local_dir, f"{ds_name}.parquet")
-        ds.to_parquet(out_path)
-        print(f'Wrote "{ds_name}" with {len(ds)} rows to {out_path}')
+    # Write a small preview JSON (up to 10 rows)
+    # [Comment out]
+    example_path = os.path.join(local_dir, f"{split_name}.example.json")
+    mapped_ds.select(range(min(10, len(mapped_ds)))).to_json(example_path)
+    print(f'Wrote preview to {example_path}')
 
+    # Write the mapped parquet
+    out_path = os.path.join(local_dir, f"{split_name}.parquet")
+    if not args.sft:
+        mapped_ds = mapped_ds.cast(TARGET_FEATURES)  
+        print('SANITY CHECK:', mapped_ds.features)   
+        assert isinstance(mapped_ds[0]["prompt"], list) and isinstance(mapped_ds[0]["prompt"][0], dict)
+
+    mapped_ds.to_parquet(out_path)
+
+    print(f'Wrote "{split_name}" with {len(mapped_ds)} rows to {out_path}')
+
+    # Optional HDFS copy
     if hdfs_dir:
         makedirs(hdfs_dir)
         copy(src=local_dir, dst=hdfs_dir)
+

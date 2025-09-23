@@ -34,9 +34,10 @@ export VERL_CACHE_DIR="$NEW_HF_CACHE/verl-cache"
 
 BATCH_SIZE=64
 MICRO_BATCH_SIZE=1
+#MODEL="/dfs/project/kgrlm/common/llm_twin/models/Qwen2.5-14B-Instruct"
 
-MODEL=Qwen/Qwen2.5-14B-Instruct
-huggingface-cli download $MODEL
+# UNCOMMENT TO DEBUG
+MODEL="Qwen/Qwen2.5-3B-Instruct"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -59,6 +60,10 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
+    +data.tags.tag_path="/dfs/project/kgrlm/common/llm_twin/data/reddit_debug_verl/index_tags.jsonl" \
+    +data.tags.index_col="index" \
+    +data.tags.tag_col="tags" \
+    +data.tags.wrap_with_markers=True \
     +actor_rollout_ref.kwargs.custom_chat_template="$VERL_PATH/recipe/usim/qwen_multi_role_template_belief.jinja" \
     actor_rollout_ref.model.path=$MODEL \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -104,13 +109,12 @@ python3 -m verl.trainer.main_ppo \
     trainer.default_hdfs_dir=null \
     trainer.val_before_train=True \
     trainer.log_val_generations=True \
-    actor_rollout_ref.model.target_modules=all-linear \
     +trainer.hf_hub.enable=True \
     +trainer.hf_hub.repo_id=snap-stanford/$EXP_NAME \
     +trainer.hf_hub.private=True \
     +trainer.hf_hub.branch="main" \
     +trainer.hf_hub.token="" \
-    trainer.total_epochs=60 $@
+    trainer.total_epochs=10 $@
     
     # '+reward_model.reward_kwargs.val_response_metrics.indistinguishable_win_rate={model: gpt-4o-mini, max_tokens: 1024, temperature: 0}' \
     # actor_rollout_ref.model.lora_rank=16 \
