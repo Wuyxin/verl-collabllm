@@ -1,7 +1,9 @@
 import re
+import json
 from openai import OpenAI
 from pydantic import BaseModel
-from typing import Optional
+
+PREDICTIONS_FILE = "/dfs/project/kgrlm/akhatua/digitial-human-lm/verl/recipe/usim/predictions.json"
 
 client = OpenAI()
 
@@ -23,13 +25,13 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
         dict: Contains "score" and "tag_star" for two-stage processing
     """
     
-    print(f"\n REWARD FUNCTION DEBUG")
+    print(f"\nREWARD FUNCTION DEBUG")
     print(f"=" * 50)
     print(f"Data Source: {data_source}")
     print(f"Model Output: {solution_str}")
     print(f"Ground Truth: {ground_truth}")
     print(f"Extra Info Keys: {list(extra_info.keys()) if extra_info else 'None'}")
-
+    
     try:
         # Extract single tag from <tag>...</tag> format
         tag_match = re.search(r'<tag>(.*?)</tag>', solution_str)
@@ -40,9 +42,7 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
         
         tag = tag_match.group(1).strip()
         print(f"Extracted Tag: '{tag}'")
-        if not tag:
-            print(f"Empty tag extracted.")
-            return {"score": 0.0, "tag_star": ""}
+        
         # Get context information from extra_info
         original_post = extra_info.get("original_post", "") if extra_info else ""
         user_persona = extra_info.get("user_persona", "") if extra_info else ""
@@ -93,6 +93,23 @@ Rate how well this tag captures the essence of the user's response to the AITA p
             "score": final_score,
             "tag_star": tag
         }
+        
+        # Load existing predictions
+        idx = extra_info.get("index", -1) if extra_info else -1
+        try:
+            with open(PREDICTIONS_FILE, "r") as f:
+                data = json.load(f)
+        except:
+            data = {}
+        
+        # Add new prediction
+        if str(idx) not in data:
+            data[str(idx)] = {"predictions": []}
+        data[str(idx)]["predictions"].append({"tag": tag, "score": final_score})
+        
+        # Save back
+        with open(PREDICTIONS_FILE, "w") as f:
+            json.dump(data, f)
         
         print(f"Final Result: {result}")
         print(f"=" * 50)
