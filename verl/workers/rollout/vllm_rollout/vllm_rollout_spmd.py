@@ -195,7 +195,7 @@ class vLLMRollout(BaseRollout):
             max_tokens=config.response_length,
         )
 
-        kwargs["detokenize"] = False
+        kwargs["detokenize"] = True # False [LLM_TWIN]
 
         # supporting adding any sampling params from the config file
         for k in config.keys():

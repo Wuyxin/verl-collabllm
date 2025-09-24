@@ -761,11 +761,11 @@ class RayPPOTrainer:
             result = self.val_reward_fn(test_batch, return_dict=True)
 
             # [LLM_TWIN] Edit for wandb logging
-            val_scalars = {}
-            if "reward_extra_info" in result:
-                for k, v in result["reward_extra_info"].items():
-                    val_scalars[f"val-aux/{k}"] = float(v.item() if hasattr(v, "item") else v)
-            result["reward_extra_info"] = {}
+            # val_scalars = {}
+            # if "reward_extra_info" in result:
+            #     for k, v in result["reward_extra_info"].items():
+            #         val_scalars[f"val-aux/{k}"] = float(v.item() if hasattr(v, "item") else v)
+            # result["reward_extra_info"] = {}
 
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -825,8 +825,8 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
-
-        metric_dict.update(val_scalars)
+    
+        # metric_dict.update(val_scalars)
         return metric_dict
 
     def init_workers(self):

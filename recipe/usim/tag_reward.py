@@ -3,7 +3,7 @@ import json
 from openai import OpenAI
 from pydantic import BaseModel
 
-PREDICTIONS_FILE = "/dfs/project/kgrlm/akhatua/digitial-human-lm/verl/recipe/usim/predictions.json"
+PREDICTIONS_FILE = "/dfs/project/kgrlm/common/llm_twin/outputs"
 
 client = OpenAI()
 
@@ -25,6 +25,7 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
         dict: Contains "score" and "tag_star" for two-stage processing
     """
     
+    
     print(f"\nREWARD FUNCTION DEBUG")
     print(f"=" * 50)
     print(f"Data Source: {data_source}")
@@ -35,7 +36,6 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
     try:
         # Extract single tag from <tag>...</tag> format
         tag_match = re.search(r'<tag>(.*?)</tag>', solution_str)
-        
         if not tag_match:
             print(f"No tag found in solution: {solution_str}")
             return {"score": 0.0, "tag_star": ""}
