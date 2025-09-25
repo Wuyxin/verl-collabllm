@@ -3,22 +3,49 @@ from typing import Optional
 from recipe.usim.utils import extract_json  # your existing JSON extractor
 
 
-TAG_SCORE_PROMPT = """You are a precise judge. Score how well a single tag captures the essence of a user's comment on a post, taking the user's persona into account.
+TAG_SCORE_PROMPT = '''You are a helpful and meticulous evaluator. \
+Your task is to score how well a Response Signature is expressed in a comment. \
+A Response Signature is a short, high-level description of the stance, \
+attitude, or overall perspective shown in the comment. \
+It is not a detailed summary or direction response, but rather a concise impression of how the response is expressed.
 
-Return JSON with fields: "thought" (brief reasoning) and "score" (0.0-1.0).
+You will be given the post to understand the context, the comment itself, \
+and the candidate tag (the Response Signature) that you should evaluate.
 
-Context:
-User Persona: {persona}
-Post: {post}
-Comment: {comment}
-Tag: {tag}
+Provided Information:
+<|The Start of Post|>
+{post}
+<|The End of Post|>
 
-Rate how well this tag captures the essence of the user's response to the AITA post, considering their persona.
-Guidelines:
-- Score higher if the tag reflects the comment's main stance/reaction/topic with persona-consistent framing.
-- Penalize generic, off-topic, or inaccurate tags.
-- Output ONLY a JSON object with keys "thought" and "score".
-"""
+<|The Start of Comment|>
+{comment}
+<|The End of Comment|>
+
+<|The Start of Tag|>
+{tag}
+<|The End of Tag|>
+
+Scoring Criteria:
+Score how well the candidate Response Signature matches the stance, attitude, or overall perspective in the comment.
+
+- 1.0 — Excellent match: The tag fully captures the stance/attitude expressed in the comment, with no major gaps or errors.
+- 0.7 — Good match: The tag reflects the general stance/attitude, but misses some nuance or is slightly incomplete.
+- 0.3 — Weak match: The tag only partially captures the comment, or is too vague/generic to be very useful.
+- 0.0 — Mismatch: The tag does not reflect the stance/attitude at all, or is clearly wrong given the comment.
+
+
+Output format (JSON):
+{{
+    "thought": "<How good is the signature>",
+    "score": <score>
+}}
+
+Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured. \
+Use " or """ to wrap up the thought. You should not use other triple quotes inside the "thought" field. \
+Instead you should use single quotes to avoid JSON escape issues.
+
+Your evaluation:
+'''
 
 async def compute_score(data_source, generation, ground_truth, extra_info, **kwargs) -> float:
     """

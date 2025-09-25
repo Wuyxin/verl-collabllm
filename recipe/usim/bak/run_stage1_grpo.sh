@@ -8,7 +8,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=false \
     data.train_files=/dfs/project/kgrlm/common/llm_twin/reddit/tagged/train.parquet \
     data.val_files=/dfs/project/kgrlm/common/llm_twin/reddit/tagged/test.parquet \
-    data.train_batch_size=1 \
+    data.train_batch_size=8 \
     data.max_prompt_length=4096 \
     data.max_response_length=256 \
     '+data.kwargs={}' \
@@ -20,7 +20,7 @@ python3 -m verl.trainer.main_ppo \
     '+actor_rollout_ref.rollout.stop="<response>"' \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=1 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     '+actor_rollout_ref.ref.kwargs={}' \
@@ -31,7 +31,7 @@ python3 -m verl.trainer.main_ppo \
     reward_model.enable=false \
     custom_reward_function.path=recipe/usim/tag_reward.py \
     custom_reward_function.name=llm_judge_reward_function \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.total_epochs=1 \
     trainer.project_name=aita_debug \
     trainer.experiment_name=debug_one_step

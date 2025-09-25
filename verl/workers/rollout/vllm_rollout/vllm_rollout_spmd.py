@@ -204,16 +204,16 @@ class vLLMRollout(BaseRollout):
         kwargs["n"] = 1  # already repeat in ray_trainer
 
         #[LLM_TWIN] force stop kwarg to be python list
-        if kwargs["stop"] is not None:
-            list_ids = []
-            stop_strings = list(kwargs["stop"])
-            for s in stop_strings:
-                ids = tokenizer.encode(s, add_special_tokens=False)
-                list_ids.append(tuple(int(id) for id in ids))
-            kwargs["stop"] = None
-            kwargs["stop_token_ids"] = list_ids
-        print("VLLLM KWARGSSSS")
-        print(f"kwargs: {kwargs}")
+        # if kwargs["stop"] is not None:
+        #     list_ids = []
+        #     stop_strings = list(kwargs["stop"])
+        #     for s in stop_strings:
+        #         ids = tokenizer.encode(s, add_special_tokens=False)
+        #         list_ids.append(tuple(int(id) for id in ids))
+        #     kwargs["stop"] = None
+        #     kwargs["stop_token_ids"] = list_ids
+        # print("VLLLM KWARGSSSS")
+        # print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id

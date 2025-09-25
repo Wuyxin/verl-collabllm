@@ -11,6 +11,43 @@ class TagJudgment(BaseModel):
     reasoning: str
     score: float
 
+
+TAG_RATING_PROMPT = '''You are a helpful and meticulous evaluator. Your task is to \
+evaluate the *accuracy* of an AI model's answer to a target question. \
+You will be given the target question, the ground truth answer, and the conversation between the AI and the user.
+
+Provided Information:
+
+<|The Start of Target Question and Ground Truth Answer|>
+Target Question: {single_turn_prompt}
+Ground Truth Answer: {ground_truth}
+<|The End of Target Question and Ground Truth Answer|>
+
+<|The Start of The Conversation|>
+{chat_history}
+<|The End of The Conversation|>
+
+You should determine whether the model's final response to the target question is \
+factually correct and consistent with the provided ground truth.
+
+Rating criteria (binary):
+  • 1 = Correct   — the response matches the ground truth.
+  • 0 = Incorrect — the response contradicts or misses the ground truth.
+
+Output format (JSON):
+{{
+    "thought": "<your reasoning here>",
+    "accuracy": <0 or 1>
+}}
+
+Double check if the JSON object is formatted correctly. Ensure that all fields are present and properly structured. \
+Use " or """ to wrap up the thought and use single quotes inside the "thought" field to avoid JSON escape issues.
+
+Your evaluation:
+'''
+
+
+
 def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_info=None):
     """
     Reward function that extracts tags and uses LLM judge for evaluation.
@@ -26,8 +63,6 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
     """
     
     
-    print(f"\nREWARD FUNCTION DEBUG")
-    print(f"=" * 50)
     print(f"Data Source: {data_source}")
     print(f"Model Output: {solution_str}")
     print(f"Ground Truth: {ground_truth}")
@@ -35,13 +70,17 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
     
     try:
         # Extract single tag from <tag>...</tag> format
-        tag_match = re.search(r'<tag>(.*?)</tag>', solution_str)
+        tag_match = re.search(r'<tag>(.*?)</tag>', solution_str, re.DOTALL)
+        print(f"solution_str {solution_str} | tag_match {tag_match}")
         if not tag_match:
             print(f"No tag found in solution: {solution_str}")
             return {"score": 0.0, "tag_star": ""}
-        
-        tag = tag_match.group(1).strip()
+            
+        tag = tag_match.group(1).strip(" \n")
         print(f"Extracted Tag: '{tag}'")
+
+        print(f"solution_str {solution_str} | tag_match {tag_match} | tag {tag}")
+        import pdb; pdb.set_trace()
         
         # Get context information from extra_info
         original_post = extra_info.get("original_post", "") if extra_info else ""
@@ -65,11 +104,12 @@ def llm_judge_reward_function(data_source, solution_str, ground_truth, extra_inf
             messages=[
                 {
                     "role": "system", 
-                    "content": "Rate how well the tag connects the AITA post to the comment given the user persona. Provide reasoning and score (0.0-1.0)."
+                    "content": "You are a helpful assistant."
                 },
                 {
                     "role": "user",
-                    "content": f"""User Persona: {user_persona}
+                    "content": f"""Rate how well the tag connects the AITA post to the comment given the user persona. Provide reasoning and score (0.0-1.0).
+                    User Persona: {user_persona}
 
 AITA Post: {original_post}
 
