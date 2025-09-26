@@ -30,7 +30,7 @@ python3 -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=2 \
     -m verl.trainer.fsdp_sft_trainer \
     data.train_files="$DATA_PATH/train.parquet" \
     data.val_files="$DATA_PATH/test_2p.parquet" \
-    +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja"\
+    +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/chat_templates/qwen_multi_role_template.jinja"\
     data.multiturn.enable=false \
     data.max_length=6000 \
     data.train_batch_size=2 \

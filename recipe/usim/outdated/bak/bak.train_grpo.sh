@@ -33,7 +33,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_response_length=2048 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    data.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja"\
+    data.chat_template_path="$VERL_PATH/recipe/usim/chat_templates/qwen_multi_role_template.jinja"\
     actor_rollout_ref.model.path="Qwen/Qwen2.5-0.5B-Instruct" \
     actor_rollout_ref.hybrid_engine=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -43,7 +43,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ppo_mini_batch_size=4 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.model.target_modules=all-linear \
-    actor_rollout_ref.model.custom_chat_template="$VERL_PATH/recipe/usim/qwen_multi_role_template.jinja" \
+    actor_rollout_ref.model.custom_chat_template="$VERL_PATH/recipe/usim/chat_templates/qwen_multi_role_template.jinja" \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \

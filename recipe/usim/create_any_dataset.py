@@ -1,3 +1,7 @@
+"""
+python -m recipe.usim.create_any_dataset --dataset reddit --parquet_path /dfs/project/kgrlm/common/llm_twin/data/reddit_debug/unseen_test.parquet --local_dir /dfs/project/kgrlm/common/llm_twin/processed_data/reddit_debug --split unseen_test
+"""
+
 import re
 import os
 import datasets
@@ -289,10 +293,10 @@ if __name__ == "__main__":
     parser.add_argument("--jsonl_path", type=str, default=None)
     parser.add_argument("--parquet_path", type=str, default=None)
     parser.add_argument("--local_dir")
-    parser.add_argument("--hf_repo", default="snap-stanford/filtered_subreddit_users")
+    # parser.add_argument("--hf_repo", default="snap-stanford/filtered_subreddit_users")
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument("--data_source", default="user-sim/generation")
-    # parser.add_argument('--prompt_template', default='recipe/usim/character_template.txt')
+    # parser.add_argument('--prompt_template', default='recipe/usim/system_prompt/character_template.txt')
     parser.add_argument("--response_only", action="store_true", default=False)
     parser.add_argument("--persona", action="store_true", default=False)  # add the persona
     parser.add_argument("--past_comments", action="store_true", default=False)
@@ -309,13 +313,13 @@ if __name__ == "__main__":
     # If past_comments is true: character_template_past_comments.txt
     # If neither persona and past_comments is true: character_template_bare.txt
     '''if args.persona:
-        prompt_template_path = "./recipe/usim/character_templates/character_template.txt"
+        prompt_template_path = "./recipe/usim/system_prompt/character_template.txt"
     elif args.past_comments:
-        prompt_template_path = "./recipe/usim/character_templates/character_template_past_comments.txt"
+        prompt_template_path = "./recipe/usim/system_prompt/character_template_past_comments.txt"
     else:
-        prompt_template_path = "./recipe/usim/character_templates/character_template_bare.txt"'''
+        prompt_template_path = "./recipe/usim/system_prompt/character_template_bare.txt"'''
 
-    prompt_template_path = "./recipe/usim/character_templates/system_prompt_tags.txt"
+    prompt_template_path = "./recipe/usim/system_prompt/signature.txt"
 
     # CHANGE ARGS
     data_source = args.data_source
@@ -456,7 +460,7 @@ if __name__ == "__main__":
         mapped_ds = mapped_ds.cast(TARGET_FEATURES)  
         print('SANITY CHECK:', mapped_ds.features)   
         assert isinstance(mapped_ds[0]["prompt"], list) and isinstance(mapped_ds[0]["prompt"][0], dict)
-
+    
     mapped_ds.to_parquet(out_path)
 
     print(f'Wrote "{split_name}" with {len(mapped_ds)} rows to {out_path}')

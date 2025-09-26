@@ -76,7 +76,7 @@ if __name__ == '__main__':
     parser.add_argument('--hf_repo', default='snap-stanford/filtered_subreddit_users')
     parser.add_argument('--hdfs_dir', default=None)
     parser.add_argument('--data_source', default='user-sim/generation')
-    #parser.add_argument('--prompt_template', default='recipe/usim/character_template.txt')
+    #parser.add_argument('--prompt_template', default='recipe/usim/system_prompt/character_template.txt')
     parser.add_argument('--response_only', action='store_true', default=False)
     parser.add_argument('--persona', action='store_true', default=False)  # add the persona
     parser.add_argument('--past_comments', action='store_true', default=False)
@@ -86,11 +86,11 @@ if __name__ == '__main__':
     # If past_comments is true: character_template_past_comments.txt
     # If neither persona and past_comments is true: character_template_bare.txt
     if args.persona:
-        prompt_template_path = "./recipe/usim/character_templates/character_template.txt"
+        prompt_template_path = "./recipe/usim/system_prompt/character_templates/character_template.txt"
     elif args.past_comments:
-        prompt_template_path = "./recipe/usim/character_templates/character_template_past_comments.txt"
+        prompt_template_path = "./recipe/usim/system_prompt/character_templates/character_template_past_comments.txt"
     else:
-        prompt_template_path = "./recipe/usim/character_templates/character_template_bare.txt"
+        prompt_template_path = "./recipe/usim/system_prompt/character_templates/character_template_bare.txt"
 
     # CHANGE ARGS
     data_source = args.data_source 

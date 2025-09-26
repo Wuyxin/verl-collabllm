@@ -64,7 +64,7 @@ if __name__ == '__main__':
     parser.add_argument('--hf_repo', default='snap-stanford/synthetic_subreddit')
     parser.add_argument('--hdfs_dir', default=None)
     parser.add_argument('--data_source', default='user-sim/generation')
-    parser.add_argument('--prompt_template', default='recipe/usim/character_template.txt')
+    parser.add_argument('--prompt_template', default='recipe/usim/system_prompt/character_template.txt')
     parser.add_argument('--response_only', action='store_true', default=False)
 
     args = parser.parse_args()

@@ -53,12 +53,12 @@ python3 -m verl.trainer.main_ppo \
     +data.cache_dir=$CACHE_DIR \
     data.train_batch_size=$BATCH_SIZE \
     data.val_batch_size=256 \
-    +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/qwen_multi_role_template_belief.jinja"\
+    +data.kwargs.chat_template_path="$VERL_PATH/recipe/usim/chat_templates/qwen_multi_role_template_belief.jinja"\
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    +actor_rollout_ref.kwargs.custom_chat_template="$VERL_PATH/recipe/usim/qwen_multi_role_template_belief.jinja" \
+    +actor_rollout_ref.kwargs.custom_chat_template="$VERL_PATH/recipe/usim/chat_templates/qwen_multi_role_template_belief.jinja" \
     actor_rollout_ref.model.path=$MODEL \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.rollout.free_cache_engine=True \
