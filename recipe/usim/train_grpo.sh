@@ -1,5 +1,7 @@
 set -x
-ENGINE=${1:-vllm}
+
+PROJECT_DIR="$(pwd)"
+export VLLM_USE_V1=1
 # If you are using vllm<=0.6.3, you might need to set the following environment variable to avoid bugs:
 # export VLLM_ATTENTION_BACKEND=XFORMERS
 
