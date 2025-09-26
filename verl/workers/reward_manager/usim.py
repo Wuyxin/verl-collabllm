@@ -100,7 +100,7 @@ class UsimRewardManager(AbstractRewardManager):
         generation_fields = [parse_fields(generation) for generation in generations]
         valid_rate = sum([1 if len(g) else 0 for g in generation_fields]) / len(generation_fields)
 
-        print(f"generation_fields {generation_fields} | valid_rate {valid_rate}")
+        print(f"generation eg {generations[0]} | generation_fields {generation_fields} | valid_rate {valid_rate}")
         loop = asyncio.get_running_loop()
         tasks = [
             loop.run_in_executor(          
