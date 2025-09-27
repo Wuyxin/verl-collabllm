@@ -98,9 +98,12 @@ class UsimRewardManager(AbstractRewardManager):
             skip_special_tokens=True,
         )
         generation_fields = [parse_fields(generation) for generation in generations]
-        valid_rate = sum([1 if len(g) else 0 for g in generation_fields]) / len(generation_fields)
+        
+        keys = [list(set(g.keys()).intersection(set(self.field_to_metrics.keys()))) for g in generation_fields]
+        nonempty_rate = sum([1 if len(k) else 0 for k in keys]) / len(keys)
+        valid_rate = sum([1 if len(k) == len(self.field_to_metrics) else 0 for k in keys]) / len(keys)
 
-        print(f"generation eg {generations[0]} | generation_fields {generation_fields} | valid_rate {valid_rate}")
+        print(f"generation eg {generations[0]} | generation_fields {generation_fields} | valid_rate {nonempty_rate}")
         loop = asyncio.get_running_loop()
         tasks = [
             loop.run_in_executor(          
@@ -178,7 +181,13 @@ class UsimRewardManager(AbstractRewardManager):
         #             with open(self.tag_log_path, "a", encoding="utf-8") as f:
         #                 f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in local_rows) + "\n")
 
+        log_weighted_scores_by_field_metric.update(
+            {
+                f"{self.split}/valid_rate": valid_rate,
+                f"{self.split}/nonempty_rate": nonempty_rate,
+            }
+        )
         if return_dict:
-            return {"reward_tensor": reward_tensor, "reward_extra_info": weighted_scores_by_fm}
+            return {"reward_tensor": reward_tensor, "reward_extra_info": log_weighted_scores_by_field_metric}
         else:
-            return reward_tensor, weighted_scores_by_fm
+            return reward_tensor, log_weighted_scores_by_field_metric

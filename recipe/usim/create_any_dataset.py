@@ -1,5 +1,5 @@
 """
-python -m recipe.usim.create_any_dataset --dataset reddit --parquet_path /dfs/project/kgrlm/common/llm_twin/data/reddit_debug/unseen_test.parquet --local_dir /dfs/project/kgrlm/common/llm_twin/processed_data/reddit_debug --split unseen_test
+python -m recipe.usim.create_any_dataset --dataset reddit --parquet_path /dfs/project/kgrlm/common/llm_twin/data/reddit_processed_dataset_persona/train.parquet --local_dir /dfs/project/kgrlm/common/llm_twin/processed_data/reddit_processed_dataset_persona --split train
 """
 
 import re
@@ -48,6 +48,24 @@ _TEMPLATE_ROW = {
 }
 
 TARGET_FEATURES = HFDataset.from_list([_TEMPLATE_ROW]).features
+
+
+def format_persona(persona_dict, indent=0):
+    persona_str = ""
+    indent_str = "    " * indent  # 4 spaces per indent level
+    for key, value in persona_dict.items():
+        if isinstance(value, dict):
+            # Print key, then recurse into subtree
+            persona_str += f"{indent_str}{key}:\n"
+            persona_str += format_persona(value, indent + 1)
+        elif isinstance(value, list):
+            # Join lists with semicolons for readability
+            joined = "; ".join(str(v) for v in value)
+            persona_str += f"{indent_str}{key}: {joined}\n"
+        else:
+            persona_str += f"{indent_str}{key}: {value}\n"
+    return persona_str
+
 
 class DatasetMapper:
     """
@@ -108,8 +126,9 @@ class DatasetMapper:
 
             responsor_id = self.get_responsor_id(example)
 
+            print(format_persona(example["persona"]))
             values = {
-                "persona": '',#example["user_persona"]
+                "persona": format_persona(example["persona"]),
                 "name": responsor_id,
                 #"description": example["character"]["description"],
                 "platform": "Reddit",
@@ -163,19 +182,18 @@ class DatasetMapper:
             poster_id = self.get_poster_id(example)
             responsor_id = self.get_responsor_id(example)
 
+            print(format_persona(example["persona"]))
+            
             values = {
                 "name": poster_id,
-                "persona": "",#example["user_persona"],
+                "persona": format_persona(example["persona"]),
                 "comment_history": comment_history,
                 "platform": self.platform,
                 "memory": None,
             }
 
             system_content = self.raw_template.format(**values)  # print this out to check it's correct
-
-            data = {
-                "data_source": data_source,
-                "prompt": [
+            prompt = [
                     {
                         "role": "system",
                         "name": "",
@@ -186,7 +204,10 @@ class DatasetMapper:
                         "name": str(poster_id),
                         "content": str(user_prompt),
                     },
-                ],
+            ]
+            data = {
+                "data_source": data_source,
+                "prompt": prompt,
                 "ability": "generation",
                 "reward_model": {"style": "custom", "ground_truth": str(response)},
                 "extra_info": {

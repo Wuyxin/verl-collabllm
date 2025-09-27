@@ -723,11 +723,11 @@ class RayPPOTrainer:
             result = self.val_reward_fn(test_batch, return_dict=True)
 
             # [LLM_TWIN] Edit for wandb logging
-            # val_scalars = {}
-            # if "reward_extra_info" in result:
-            #     for k, v in result["reward_extra_info"].items():
-            #         val_scalars[f"val-aux/{k}"] = float(v.item() if hasattr(v, "item") else v)
-            # result["reward_extra_info"] = {}
+            val_scalars = {}
+            if "reward_extra_info" in result:
+                for k, v in result["reward_extra_info"].items():
+                    val_scalars[f"val-aux/{k}"] = float(v.item() if hasattr(v, "item") else v)
+            result["reward_extra_info"] = {}
 
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
